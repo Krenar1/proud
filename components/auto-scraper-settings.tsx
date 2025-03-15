@@ -53,6 +53,7 @@ const STORAGE_KEYS = {
   SEEN_PRODUCT_IDS: "seenProductIds",
   LAST_SYNC_TIME: "lastSyncTime",
   SCRAPED_PRODUCTS: "scrapedProducts",
+  INIT_MODE: "autoScraperInitMode",
 }
 
 export function AutoScraperSettings() {
@@ -107,9 +108,21 @@ export function AutoScraperSettings() {
             setIsEnabled(serverSettings.autoScraperEnabled)
           }
 
+          // Load initialization mode
+          if (serverSettings.initMode) {
+            setInitMode(serverSettings.initMode as "today" | "week")
+          } else {
+            // Fall back to localStorage
+            const savedInitMode = localStorage.getItem(STORAGE_KEYS.INIT_MODE) as "today" | "week" | null
+            if (savedInitMode) {
+              setInitMode(savedInitMode)
+            }
+          }
+
           // Also save to localStorage as fallback
           localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, serverSettings.webhookUrl || "")
           localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, serverSettings.autoScraperEnabled ? "true" : "false")
+          localStorage.setItem(STORAGE_KEYS.INIT_MODE, serverSettings.initMode || initMode)
 
           console.log("Server settings loaded and saved to localStorage")
         } else {
@@ -232,10 +245,10 @@ export function AutoScraperSettings() {
   }, [])
 
   // Function to save settings to the server
-  const saveSettingsToServer = async (url: string, enabled: boolean) => {
+  const saveSettingsToServer = async (url: string, enabled: boolean, mode: "today" | "week" = initMode) => {
     try {
       setIsSavingSettings(true)
-      console.log("Saving settings to server:", { webhookUrl: url, autoScraperEnabled: enabled })
+      console.log("Saving settings to server:", { webhookUrl: url, autoScraperEnabled: enabled, initMode: mode })
 
       const response = await fetch("/api/settings", {
         method: "POST",
@@ -245,6 +258,7 @@ export function AutoScraperSettings() {
         body: JSON.stringify({
           webhookUrl: url,
           autoScraperEnabled: enabled,
+          initMode: mode,
         }),
       })
 
@@ -481,12 +495,12 @@ export function AutoScraperSettings() {
           setNewProductsCount((prev) => prev + result.newProducts.length)
           setStatus("success")
           setStatusMessage(
-            `Found ${result.newProducts.length} new products! Contact information extracted and sent to Discord.`,
+            `Found and immediately scraped ${result.newProducts.length} new products! Contact information extracted and sent to Discord.`,
           )
 
           toast({
-            title: "New Products Found!",
-            description: `Found ${result.newProducts.length} new products with contact information and sent to Discord`,
+            title: "New Products Found & Scraped!",
+            description: `Found and immediately scraped ${result.newProducts.length} new products. Contact information extracted and sent to Discord in real-time.`,
           })
         } else {
           setStatus("success")
@@ -537,7 +551,7 @@ export function AutoScraperSettings() {
     localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, enabled.toString())
 
     // Save to server
-    await saveSettingsToServer(webhookUrl, enabled)
+    await saveSettingsToServer(webhookUrl, enabled, initMode)
 
     if (enabled) {
       if (!webhookUrl || !webhookUrl.includes("discord.com/api/webhooks")) {
@@ -845,7 +859,7 @@ export function AutoScraperSettings() {
       localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, isEnabled.toString())
 
       // Save to server
-      const success = await saveSettingsToServer(webhookUrl, isEnabled)
+      const success = await saveSettingsToServer(webhookUrl, isEnabled, initMode)
 
       if (success) {
         toast({
@@ -1038,11 +1052,23 @@ export function AutoScraperSettings() {
             </div>
 
             <div className="border rounded-md p-4">
-              <h3 className="text-sm font-medium mb-3">Initialization Mode</h3>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-sm font-medium">Initialization Mode</h3>
+                <Badge variant="outline" className="text-xs">
+                  Synced
+                </Badge>
+              </div>
               <Tabs
                 defaultValue="week"
                 value={initMode}
-                onValueChange={(value) => setInitMode(value as "today" | "week")}
+                onValueChange={(value) => {
+                  const newMode = value as "today" | "week"
+                  setInitMode(newMode)
+                  // Save to localStorage
+                  localStorage.setItem(STORAGE_KEYS.INIT_MODE, newMode)
+                  // Save to server
+                  saveSettingsToServer(webhookUrl, isEnabled, newMode)
+                }}
                 className="w-full"
               >
                 <TabsList className="grid w-full grid-cols-2">

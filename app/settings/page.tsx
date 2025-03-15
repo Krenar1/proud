@@ -285,7 +285,6 @@ export default function SettingsPage() {
 
                                 toast({
                                   title: checked ? "Twitter Extraction Enabled" : "Twitter Extraction Disabled",
-                                  description: 'This setting has  : "Twitter Extraction Disabled',
                                   description: "This setting has been applied immediately",
                                   duration: 2000,
                                 })
@@ -331,6 +330,13 @@ export default function SettingsPage() {
                   <Label htmlFor="apiKey">Product Hunt API Key</Label>
                   <Input id="apiKey" type="password" placeholder="API Key is stored securely" disabled />
                   <p className="text-xs text-muted-foreground">API key is securely stored as an environment variable</p>
+                  <div className="mt-1 text-xs text-primary">
+                    {process.env.PH_TOKEN_2 && process.env.PH_TOKEN_3
+                      ? "Triple API key rotation is enabled for increased reliability"
+                      : process.env.PH_TOKEN_2 || process.env.PH_TOKEN_3
+                        ? "Dual API key rotation is enabled"
+                        : "Single API key mode"}
+                  </div>
                 </div>
               </div>
             </CardContent>

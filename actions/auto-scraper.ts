@@ -332,19 +332,18 @@ export async function checkForNewProducts(webhookUrl: string): Promise<{
 
     // If we have new products, extract contact information and send notifications
     if (newProducts.length > 0) {
-      console.log(`Found ${newProducts.length} new products. Extracting contact information...`)
+      console.log(`Found ${newProducts.length} new products. Immediately extracting contact information...`)
 
-      // Process products in batches to extract contact information
-      let productsWithContacts: Product[] = []
-
+      // Process products in parallel for faster extraction
       try {
-        // Make sure we're actually extracting contact info for all new products
-        console.log("Starting contact extraction for new products...")
-        productsWithContacts = await extractContactInfo(newProducts, newProducts.length)
+        console.log("Starting immediate contact extraction for new products...")
+
+        // Extract contact info for all products at once
+        const productsWithContacts = await extractContactInfo(newProducts, newProducts.length)
         console.log(`Successfully extracted contact info for ${productsWithContacts.length} products`)
 
         // Ensure we're using the exact website URL, not redirected ones
-        productsWithContacts = productsWithContacts.map((product) => {
+        const optimizedProducts = productsWithContacts.map((product) => {
           if (product.website && product.exactWebsiteUrl) {
             return {
               ...product,
@@ -353,39 +352,64 @@ export async function checkForNewProducts(webhookUrl: string): Promise<{
           }
           return product
         })
-      } catch (extractError) {
-        console.error("Error extracting contact info, continuing with basic product data:", extractError)
-        productsWithContacts = newProducts // Fall back to basic product data
-      }
 
-      // Send Discord notification for each new product with contact info
-      let notificationsSent = 0
+        // Send Discord notifications with minimal delay between them
+        console.log(`Immediately sending ${optimizedProducts.length} notifications to Discord...`)
 
-      console.log(`Attempting to send ${productsWithContacts.length} notifications to Discord...`)
-      for (const product of productsWithContacts) {
-        if (webhookUrl) {
-          try {
-            console.log(`Sending notification for product: ${product.name}`)
-            const sent = await sendDiscordNotification(product, webhookUrl)
-            if (sent) {
-              notificationsSent++
-              console.log(`Successfully sent notification for ${product.name}`)
-            } else {
-              console.error(`Failed to send notification for ${product.name}`)
+        let notificationsSent = 0
+        const notificationPromises = optimizedProducts.map(async (product, index) => {
+          if (webhookUrl) {
+            try {
+              // Stagger notifications slightly to avoid Discord rate limits
+              // but keep the delay minimal (200ms between each)
+              if (index > 0) {
+                await new Promise((resolve) => setTimeout(resolve, 200))
+              }
+
+              console.log(`Sending notification for product: ${product.name}`)
+              const sent = await sendDiscordNotification(product, webhookUrl)
+
+              if (sent) {
+                notificationsSent++
+                console.log(`Successfully sent notification for ${product.name}`)
+                return true
+              } else {
+                console.error(`Failed to send notification for ${product.name}`)
+                return false
+              }
+            } catch (notifyError) {
+              console.error(`Error sending notification for product ${product.id}:`, notifyError)
+              return false
             }
+          }
+          return false
+        })
 
-            // Add a small delay between notifications to avoid rate limiting
-            await new Promise((resolve) => setTimeout(resolve, 1000))
-          } catch (notifyError) {
-            console.error(`Error sending notification for product ${product.id}:`, notifyError)
-            // Continue with next product even if this one fails
+        // Wait for all notifications to complete
+        await Promise.all(notificationPromises)
+        console.log(`Sent ${notificationsSent} notifications to Discord immediately after scraping`)
+      } catch (extractError) {
+        console.error("Error during immediate contact extraction:", extractError)
+
+        // Even if extraction fails, try to send basic notifications
+        console.log("Falling back to basic product data for notifications...")
+
+        let fallbackNotificationsSent = 0
+        for (const product of newProducts) {
+          if (webhookUrl) {
+            try {
+              const sent = await sendDiscordNotification(product, webhookUrl)
+              if (sent) {
+                fallbackNotificationsSent++
+              }
+            } catch (notifyError) {
+              console.error(`Error sending fallback notification for product ${product.id}:`, notifyError)
+            }
           }
         }
-      }
 
-      console.log(`Sent ${notificationsSent} notifications to Discord`)
-    } else {
-      console.log("No new products found in this check")
+        console.log(`Sent ${fallbackNotificationsSent} fallback notifications to Discord`)
+      }
     }
 
     // Limit the size of seenProductIds to prevent memory issues
