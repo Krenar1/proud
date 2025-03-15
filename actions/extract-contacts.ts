@@ -15,10 +15,13 @@ function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
 }
 
-// Improve the email extraction regex to be more accurate and comprehensive
+// Improved email extraction regex to be more accurate and strict
 function extractEmails(text: string): string[] {
-  // More comprehensive email regex that balances accuracy and performance
-  const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
+  // More strict email regex that follows RFC 5322 more closely
+  const emailPattern =
+    /(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/gi
+
+  // Extract all potential emails
   const emails = text.match(emailPattern) || []
 
   // Filter out common false positives and add more patterns to exclude
@@ -26,98 +29,318 @@ function extractEmails(text: string): string[] {
     // Convert to lowercase for comparison
     const lowerEmail = email.toLowerCase()
 
+    // Check domain part
+    const domainPart = lowerEmail.split("@")[1]
+
+    // Minimum requirements for a valid email
+    if (!domainPart || domainPart.length < 4 || !domainPart.includes(".")) {
+      return false
+    }
+
     // Filter out common placeholder and example emails
-    return (
-      !lowerEmail.includes("@example.com") &&
-      !lowerEmail.includes("@domain.com") &&
-      !lowerEmail.includes("@yourdomain.com") &&
-      !lowerEmail.includes("@email.com") &&
-      !lowerEmail.includes("@yourcompany") &&
-      !lowerEmail.includes("@company.com") &&
-      !lowerEmail.includes("@acme.com") &&
-      !lowerEmail.includes("name@") &&
-      !lowerEmail.includes("user@") &&
-      !lowerEmail.includes("username@") &&
-      !lowerEmail.includes("email@") &&
-      !lowerEmail.includes("your@") &&
-      !lowerEmail.includes("info@example") &&
-      !lowerEmail.includes("john.doe@") &&
-      !lowerEmail.includes("jane.doe@") &&
-      // Exclude very short domains that are likely not valid
-      !(lowerEmail.split("@")[1] && lowerEmail.split("@")[1].length < 4)
-    )
+    const invalidDomains = [
+      "example.com",
+      "domain.com",
+      "yourdomain.com",
+      "email.com",
+      "yourcompany.com",
+      "company.com",
+      "acme.com",
+      "test.com",
+      "sample.com",
+      "website.com",
+      "mail.com",
+      "gmail.example",
+      "example.org",
+      "example.net",
+    ]
+
+    if (invalidDomains.some((domain) => domainPart.includes(domain))) {
+      return false
+    }
+
+    // Filter out common placeholder usernames
+    const userPart = lowerEmail.split("@")[0]
+    const invalidUsernames = [
+      "name",
+      "user",
+      "username",
+      "email",
+      "your",
+      "info@example",
+      "john.doe",
+      "jane.doe",
+      "admin",
+      "test",
+      "example",
+      "hello",
+      "contact@example",
+      "support@example",
+      "noreply",
+      "no-reply",
+      "donotreply",
+    ]
+
+    if (invalidUsernames.some((name) => userPart === name)) {
+      return false
+    }
+
+    // Check for emails that are likely real
+    const likelyRealDomains = [".com", ".org", ".net", ".io", ".co", ".us", ".uk", ".ca", ".au", ".de", ".fr"]
+    const hasLikelyRealDomain = likelyRealDomains.some((domain) => domainPart.endsWith(domain))
+
+    // Additional validation for common email patterns
+    const isCommonEmailPattern = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email)
+
+    return isCommonEmailPattern && hasLikelyRealDomain
   })
 }
 
-// Enhance the Twitter handle extraction to be more comprehensive
-function extractTwitterHandles($: cheerio.CheerioAPI): string[] {
-  const twitterHandles: string[] = []
+// Enhanced social media extraction to find multiple platforms with strict validation
+function extractSocialMedia($: cheerio.CheerioAPI): {
+  twitter: string[]
+  facebook: string[]
+  instagram: string[]
+  linkedin: string[]
+} {
+  const socialMedia = {
+    twitter: [] as string[],
+    facebook: [] as string[],
+    instagram: [] as string[],
+    linkedin: [] as string[],
+  }
 
-  // Look for Twitter links with more comprehensive selectors
+  // Look for social media links with comprehensive selectors
   $(
-    "a[href*='twitter.com'], a[href*='x.com'], a[href*='t.co'], [class*='twitter'], [class*='tweet'], [id*='twitter']",
+    "a[href*='twitter.com'], a[href*='x.com'], a[href*='t.co'], a[href*='facebook.com'], a[href*='fb.com'], a[href*='instagram.com'], a[href*='linkedin.com'], [class*='social'], [id*='social'], footer a, .footer a",
   ).each((_, element) => {
     try {
       const href = $(element).attr("href") || ""
       const text = $(element).text() || ""
+      const classes = $(element).attr("class") || ""
 
-      // Extract from href
+      // Only process if we have a valid href
+      if (!href || href === "#" || href === "/" || href.startsWith("javascript:")) {
+        return
+      }
+
+      // Check for Twitter
       if (href.includes("twitter.com/") || href.includes("x.com/") || href.includes("t.co/")) {
-        const parts = href.split("/")
-        if (parts.length > 3) {
-          const handle = parts[parts.length - 1].split("?")[0] // Remove query parameters
-          if (
-            handle &&
-            ![
-              "share",
-              "intent",
-              "home",
-              "hashtag",
-              "compose",
-              "search",
-              "explore",
-              "notifications",
-              "messages",
-            ].includes(handle.toLowerCase())
-          ) {
+        // Extract handle from URL
+        let handle = ""
+
+        // Parse the URL to extract the handle
+        try {
+          const url = new URL(href.startsWith("http") ? href : `https:${href}`)
+          const pathParts = url.pathname.split("/").filter(Boolean)
+
+          // Validate the path has a username component
+          if (pathParts.length > 0) {
+            handle = pathParts[0]
+
+            // Skip known non-username paths
+            if (
+              [
+                "share",
+                "intent",
+                "home",
+                "hashtag",
+                "compose",
+                "search",
+                "explore",
+                "notifications",
+                "messages",
+                "settings",
+              ].includes(handle.toLowerCase())
+            ) {
+              return
+            }
+
+            // Clean up the handle
+            handle = handle.replace(/[?#].*$/, "").trim()
+
             // Add @ if it's missing
-            const formattedHandle = handle.startsWith("@") ? handle : `@${handle}`
-            twitterHandles.push(formattedHandle)
+            if (handle && !handle.startsWith("@")) {
+              handle = `@${handle}`
+            }
+
+            if (handle && handle.length > 1) {
+              socialMedia.twitter.push(handle)
+            }
+          }
+        } catch (e) {
+          // If URL parsing fails, try regex extraction
+          const twitterHandleRegex = /twitter\.com\/([A-Za-z0-9_]+)/i
+          const match = href.match(twitterHandleRegex)
+          if (match && match[1]) {
+            handle = `@${match[1]}`
+            socialMedia.twitter.push(handle)
           }
         }
       }
 
-      // Also try to extract Twitter handles from text content
-      const twitterRegex = /@([A-Za-z0-9_]+)/g
-      const matches = text.match(twitterRegex)
-      if (matches) {
-        twitterHandles.push(...matches)
+      // Check for Facebook
+      if (href.includes("facebook.com/") || href.includes("fb.com/")) {
+        try {
+          // Normalize the URL
+          let fbUrl = href
+          if (!fbUrl.startsWith("http")) {
+            fbUrl = `https:${fbUrl.startsWith("//") ? fbUrl : `//${fbUrl}`}`
+          }
+
+          // Parse the URL
+          const url = new URL(fbUrl)
+
+          // Skip sharing and dialog URLs
+          if (url.pathname.includes("/sharer") || url.pathname.includes("/dialog")) {
+            return
+          }
+
+          // Clean up the URL
+          const cleanUrl = `${url.origin}${url.pathname.split("?")[0]}`
+
+          // Only add if it's likely a profile or page
+          if (cleanUrl.length > 25 && !cleanUrl.endsWith("facebook.com/") && !cleanUrl.endsWith("fb.com/")) {
+            socialMedia.facebook.push(cleanUrl)
+          }
+        } catch (e) {
+          // If URL parsing fails, just use the original href if it looks valid
+          if (href.includes("facebook.com/") && href.length > 25) {
+            socialMedia.facebook.push(href)
+          }
+        }
+      }
+
+      // Check for Instagram
+      if (href.includes("instagram.com/")) {
+        try {
+          // Normalize the URL
+          let igUrl = href
+          if (!igUrl.startsWith("http")) {
+            igUrl = `https:${igUrl.startsWith("//") ? igUrl : `//${igUrl}`}`
+          }
+
+          // Parse the URL
+          const url = new URL(igUrl)
+          const pathParts = url.pathname.split("/").filter(Boolean)
+
+          // Skip non-profile URLs
+          if (pathParts.length === 0 || ["p", "explore", "direct", "stories"].includes(pathParts[0])) {
+            return
+          }
+
+          // Clean up the URL
+          const cleanUrl = `${url.origin}/${pathParts[0]}`
+
+          // Only add if it looks like a profile
+          if (cleanUrl.length > 25 && !cleanUrl.endsWith("instagram.com/")) {
+            socialMedia.instagram.push(cleanUrl)
+          }
+        } catch (e) {
+          // If URL parsing fails, just use the original href if it looks valid
+          if (href.includes("instagram.com/") && href.length > 25 && !href.includes("instagram.com/p/")) {
+            socialMedia.instagram.push(href)
+          }
+        }
+      }
+
+      // Check for LinkedIn
+      if (href.includes("linkedin.com/")) {
+        try {
+          // Normalize the URL
+          let liUrl = href
+          if (!liUrl.startsWith("http")) {
+            liUrl = `https:${liUrl.startsWith("//") ? liUrl : `//${liUrl}`}`
+          }
+
+          // Parse the URL
+          const url = new URL(liUrl)
+
+          // Skip sharing URLs
+          if (url.pathname.includes("/share") || url.pathname.includes("/shareArticle")) {
+            return
+          }
+
+          // Clean up the URL
+          const cleanUrl = `${url.origin}${url.pathname.split("?")[0]}`
+
+          // Only add if it's likely a profile or company page
+          if (
+            cleanUrl.length > 25 &&
+            (cleanUrl.includes("/in/") || cleanUrl.includes("/company/") || cleanUrl.includes("/school/"))
+          ) {
+            socialMedia.linkedin.push(cleanUrl)
+          }
+        } catch (e) {
+          // If URL parsing fails, just use the original href if it looks valid
+          if (
+            href.includes("linkedin.com/") &&
+            href.length > 25 &&
+            (href.includes("/in/") || href.includes("/company/") || href.includes("/school/"))
+          ) {
+            socialMedia.linkedin.push(href)
+          }
+        }
       }
     } catch (error) {
       // Skip this element and continue
     }
   })
 
-  return [...new Set(twitterHandles)]
+  // Remove duplicates and normalize
+  return {
+    twitter: [...new Set(socialMedia.twitter)],
+    facebook: [...new Set(socialMedia.facebook)],
+    instagram: [...new Set(socialMedia.instagram)],
+    linkedin: [...new Set(socialMedia.linkedin)],
+  }
 }
 
-// Validate URL
+// Enhanced URL validation
 function isValidUrl(urlString: string): boolean {
   if (!urlString || typeof urlString !== "string" || urlString.trim() === "") {
     return false
   }
 
   try {
-    new URL(urlString)
-    return true
+    const url = new URL(urlString)
+    // Check for valid protocol
+    return url.protocol === "http:" || url.protocol === "https:"
   } catch (error) {
     return false
   }
 }
 
+// Normalize URL to ensure consistency
+function normalizeUrl(url: string): string {
+  if (!url) return ""
+
+  try {
+    // Add protocol if missing
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+      url = "https://" + url
+    }
+
+    // Parse the URL
+    const urlObj = new URL(url)
+
+    // Remove trailing slash
+    let normalized = urlObj.origin + urlObj.pathname.replace(/\/$/, "")
+
+    // Keep query parameters for certain URLs where they're important
+    if (urlObj.search && (url.includes("product") || url.includes("item") || url.includes("page"))) {
+      normalized += urlObj.search
+    }
+
+    return normalized
+  } catch (e) {
+    return url
+  }
+}
+
 // Check if a URL is a Product Hunt redirect URL
 function isProductHuntRedirectUrl(url: string): boolean {
-  return url.includes("producthunt.com/r/")
+  return url.includes("producthunt.com/r/") || url.includes("ph.co/")
 }
 
 // Extract real URL from Product Hunt redirect URL by fetching the page and looking for meta tags
@@ -149,16 +372,24 @@ async function extractUrlFromProductHuntPage(url: string): Promise<string | null
     // Look for the website URL in meta tags
     let websiteUrl = null
 
-    // Try to find the website URL in meta tags
-    $("meta").each((_, element) => {
-      const property = $(element).attr("property") || $(element).attr("name")
-      if (property === "og:url" || property === "twitter:url") {
-        const content = $(element).attr("content")
-        if (content && !content.includes("producthunt.com")) {
-          websiteUrl = content
+    // First, try to find the canonical URL
+    const canonicalLink = $('link[rel="canonical"]').attr("href")
+    if (canonicalLink && !canonicalLink.includes("producthunt.com")) {
+      websiteUrl = canonicalLink
+    }
+
+    // If not found, try meta tags
+    if (!websiteUrl) {
+      $("meta").each((_, element) => {
+        const property = $(element).attr("property") || $(element).attr("name")
+        if (property === "og:url" || property === "twitter:url") {
+          const content = $(element).attr("content")
+          if (content && !content.includes("producthunt.com")) {
+            websiteUrl = content
+          }
         }
-      }
-    })
+      })
+    }
 
     // If not found in meta tags, look for links with rel="nofollow" that point outside Product Hunt
     if (!websiteUrl) {
@@ -171,17 +402,17 @@ async function extractUrlFromProductHuntPage(url: string): Promise<string | null
       })
     }
 
-    // If still not found, look for any link that might be the website
+    // Look specifically for the "Visit" or "Website" button
     if (!websiteUrl) {
-      // Look for a link that says "Website" or similar
       $("a").each((_, element) => {
         const text = $(element).text().toLowerCase()
         const href = $(element).attr("href")
+
         if (
           href &&
           !href.includes("producthunt.com") &&
           href.startsWith("http") &&
-          (text.includes("website") || text.includes("visit") || text.includes("home"))
+          (text.includes("visit") || text.includes("website") || text.includes("home"))
         ) {
           websiteUrl = href
           return false // break the loop
@@ -192,7 +423,7 @@ async function extractUrlFromProductHuntPage(url: string): Promise<string | null
     // If we found a website URL, return it
     if (websiteUrl) {
       console.log(`Found website URL from Product Hunt page: ${websiteUrl}`)
-      return websiteUrl
+      return normalizeUrl(websiteUrl)
     }
 
     console.log(`Could not find website URL in Product Hunt page: ${url}`)
@@ -238,17 +469,74 @@ async function resolveProductHuntRedirect(url: string): Promise<string | null> {
       const urlParam = urlObj.searchParams.get("url")
       if (urlParam && isValidUrl(urlParam)) {
         console.log(`Found URL in query parameter: ${urlParam}`)
-        return urlParam
+        return normalizeUrl(urlParam)
       }
     } catch (error) {
       console.error(`Error parsing URL: ${url}`, error)
     }
 
     // If that fails, try to extract from the Product Hunt page
-    return await extractUrlFromProductHuntPage(url)
+    const extractedUrl = await extractUrlFromProductHuntPage(url)
+    return extractedUrl ? normalizeUrl(extractedUrl) : null
   } catch (error) {
     console.error(`Error resolving Product Hunt redirect: ${url}`, error)
     return null
+  }
+}
+
+// Find canonical URL to get the exact website URL
+async function findCanonicalUrl(url: string): Promise<string> {
+  try {
+    console.log(`Finding canonical URL for: ${url}`)
+
+    const response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          "User-Agent": getRandomUserAgent(),
+          Accept: "text/html",
+        },
+        cache: "no-store",
+        redirect: "follow", // Follow redirects
+      },
+      8000,
+    ).catch((error) => {
+      console.error(`Error fetching ${url} for canonical URL:`, error.message)
+      return null
+    })
+
+    if (!response || !response.ok) {
+      console.log(`Failed to fetch ${url} for canonical URL check`)
+      return url // Return original URL if we can't fetch
+    }
+
+    // Get the final URL after redirects
+    const finalUrl = response.url
+
+    // Get the HTML to check for canonical link
+    const html = await response.text().catch((error) => {
+      console.error(`Error getting text from ${url}:`, error)
+      return ""
+    })
+
+    if (!html) {
+      return finalUrl // Return the final URL after redirects
+    }
+
+    // Parse the HTML to look for canonical link
+    const $ = cheerio.load(html)
+    const canonicalLink = $('link[rel="canonical"]').attr("href")
+
+    if (canonicalLink && isValidUrl(canonicalLink)) {
+      console.log(`Found canonical URL: ${canonicalLink}`)
+      return normalizeUrl(canonicalLink)
+    }
+
+    // If no canonical link, return the final URL after redirects
+    return normalizeUrl(finalUrl)
+  } catch (error) {
+    console.error(`Error finding canonical URL for ${url}:`, error)
+    return url // Return original URL on error
   }
 }
 
@@ -258,7 +546,13 @@ async function checkContactPage(
   $: cheerio.CheerioAPI,
 ): Promise<{
   emails: string[]
-  twitterHandles: string[]
+  socialMedia: {
+    twitter: string[]
+    facebook: string[]
+    instagram: string[]
+    linkedin: string[]
+  }
+  contactUrl: string | null
 }> {
   try {
     // Look for contact page links with more comprehensive selectors
@@ -340,7 +634,11 @@ async function checkContactPage(
 
         if (!response || !response.ok) {
           console.log(`Failed to fetch contact page: ${contactLinks[0]}`)
-          return { emails: [], twitterHandles: [] }
+          return {
+            emails: [],
+            socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+            contactUrl: contactLinks[0], // Still return the contact URL even if we couldn't fetch it
+          }
         }
 
         const html = await response.text().catch((error) => {
@@ -349,16 +647,20 @@ async function checkContactPage(
         })
 
         if (!html) {
-          return { emails: [], twitterHandles: [] }
+          return {
+            emails: [],
+            socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+            contactUrl: contactLinks[0],
+          }
         }
 
         const contactPageEmails = extractEmails(html)
 
         // Parse the contact page HTML
-        let contactPageTwitterHandles: string[] = []
+        let contactPageSocialMedia = { twitter: [], facebook: [], instagram: [], linkedin: [] }
         try {
           const $contact = cheerio.load(html)
-          contactPageTwitterHandles = extractTwitterHandles($contact)
+          contactPageSocialMedia = extractSocialMedia($contact)
 
           // Look for contact form elements which might have email placeholders
           $contact('input[type="email"], input[name*="email"], input[placeholder*="email"]').each((_, element) => {
@@ -379,32 +681,61 @@ async function checkContactPage(
               }
             }
           })
+
+          // Look for email addresses in text content
+          $contact("p, div, span, address").each((_, element) => {
+            const text = $contact(element).text()
+            if (text.includes("@") && text.includes(".")) {
+              const emails = extractEmails(text)
+              if (emails.length > 0) {
+                contactPageEmails.push(...emails)
+              }
+            }
+          })
         } catch (parseError) {
           console.error(`Error parsing contact page ${contactLinks[0]}:`, parseError)
-          // Continue with empty Twitter handles
+          // Continue with empty social media
         }
 
         return {
           emails: contactPageEmails,
-          twitterHandles: contactPageTwitterHandles,
+          socialMedia: contactPageSocialMedia,
+          contactUrl: contactLinks[0],
         }
       } catch (error) {
         console.error(`Error checking contact page ${contactLinks[0]}:`, error)
-        return { emails: [], twitterHandles: [] }
+        return {
+          emails: [],
+          socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+          contactUrl: contactLinks[0],
+        }
       }
     }
 
-    return { emails: [], twitterHandles: [] }
+    return {
+      emails: [],
+      socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+      contactUrl: null,
+    }
   } catch (error) {
     console.error("Error in checkContactPage:", error)
-    return { emails: [], twitterHandles: [] }
+    return {
+      emails: [],
+      socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+      contactUrl: null,
+    }
   }
 }
 
 // Extract content from footer section
 function extractFromFooter($: cheerio.CheerioAPI): {
   emails: string[]
-  twitterHandles: string[]
+  socialMedia: {
+    twitter: string[]
+    facebook: string[]
+    instagram: string[]
+    linkedin: string[]
+  }
 } {
   try {
     // Target footer elements
@@ -439,55 +770,47 @@ function extractFromFooter($: cheerio.CheerioAPI): {
     // Extract emails from footer HTML
     const footerEmails = extractEmails(footerHtml)
 
-    // Extract Twitter handles from footer elements
-    const footerTwitterHandles: string[] = []
-    footerSelectors.forEach((selector) => {
-      try {
-        $(selector)
-          .find('a[href*="twitter.com"], a[href*="x.com"]')
-          .each((_, element) => {
-            try {
-              const href = $(element).attr("href") || ""
+    // Extract social media from footer elements
+    const footerSocialMedia = { twitter: [], facebook: [], instagram: [], linkedin: [] }
 
-              // Extract the handle from the URL
-              if (href.includes("twitter.com/") || href.includes("x.com/")) {
-                const parts = href.split("/")
-                if (parts.length > 3) {
-                  const handle = parts[parts.length - 1].split("?")[0] // Remove query parameters
-                  if (
-                    handle &&
-                    ![
-                      "share",
-                      "intent",
-                      "home",
-                      "hashtag",
-                      "compose",
-                      "search",
-                      "explore",
-                      "notifications",
-                      "messages",
-                    ].includes(handle)
-                  ) {
-                    footerTwitterHandles.push(`@${handle}`)
-                  }
-                }
-              }
-            } catch (elementError) {
-              // Skip this element and continue
-            }
-          })
-      } catch (selectorError) {
-        // Skip this selector and continue
-      }
-    })
+    try {
+      // Process each footer selector individually
+      footerSelectors.forEach((selector) => {
+        try {
+          // Create a new cheerio instance for just this selector
+          const footerElements = $(selector)
+
+          if (footerElements.length > 0) {
+            // Extract social links from these elements
+            const socialLinks = extractSocialMedia($)
+            footerSocialMedia.twitter.push(...socialLinks.twitter)
+            footerSocialMedia.facebook.push(...socialLinks.facebook)
+            footerSocialMedia.instagram.push(...socialLinks.instagram)
+            footerSocialMedia.linkedin.push(...socialLinks.linkedin)
+          }
+        } catch (error) {
+          // Skip this selector and continue
+        }
+      })
+    } catch (socialError) {
+      console.error("Error extracting social media from footer:", socialError)
+    }
 
     return {
       emails: footerEmails,
-      twitterHandles: [...new Set(footerTwitterHandles)],
+      socialMedia: {
+        twitter: [...new Set(footerSocialMedia.twitter)],
+        facebook: [...new Set(footerSocialMedia.facebook)],
+        instagram: [...new Set(footerSocialMedia.instagram)],
+        linkedin: [...new Set(footerSocialMedia.linkedin)],
+      },
     }
   } catch (error) {
     console.error("Error extracting from footer:", error)
-    return { emails: [], twitterHandles: [] }
+    return {
+      emails: [],
+      socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+    }
   }
 }
 
@@ -497,7 +820,13 @@ async function checkAboutPage(
   $: cheerio.CheerioAPI,
 ): Promise<{
   emails: string[]
-  twitterHandles: string[]
+  socialMedia: {
+    twitter: string[]
+    facebook: string[]
+    instagram: string[]
+    linkedin: string[]
+  }
+  aboutUrl: string | null
 }> {
   try {
     // Look for about page links
@@ -572,7 +901,11 @@ async function checkAboutPage(
 
         if (!response || !response.ok) {
           console.log(`Failed to fetch about page: ${aboutLinks[0]}`)
-          return { emails: [], twitterHandles: [] }
+          return {
+            emails: [],
+            socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+            aboutUrl: aboutLinks[0],
+          }
         }
 
         const html = await response.text().catch((error) => {
@@ -581,35 +914,63 @@ async function checkAboutPage(
         })
 
         if (!html) {
-          return { emails: [], twitterHandles: [] }
+          return {
+            emails: [],
+            socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+            aboutUrl: aboutLinks[0],
+          }
         }
 
         const aboutPageEmails = extractEmails(html)
 
         // Parse the about page HTML
-        let aboutPageTwitterHandles: string[] = []
+        let aboutPageSocialMedia = { twitter: [], facebook: [], instagram: [], linkedin: [] }
         try {
           const $about = cheerio.load(html)
-          aboutPageTwitterHandles = extractTwitterHandles($about)
+          aboutPageSocialMedia = extractSocialMedia($about)
+
+          // Look for team member sections which often contain emails
+          $about('.team, .team-member, .member, .employee, [class*="team"], [class*="member"]').each((_, element) => {
+            const text = $about(element).text()
+            if (text.includes("@") && text.includes(".")) {
+              const emails = extractEmails(text)
+              if (emails.length > 0) {
+                aboutPageEmails.push(...emails)
+              }
+            }
+          })
         } catch (parseError) {
           console.error(`Error parsing about page ${aboutLinks[0]}:`, parseError)
-          // Continue with empty Twitter handles
+          // Continue with empty social media
         }
 
         return {
           emails: aboutPageEmails,
-          twitterHandles: aboutPageTwitterHandles,
+          socialMedia: aboutPageSocialMedia,
+          aboutUrl: aboutLinks[0],
         }
       } catch (error) {
         console.error(`Error checking about page ${aboutLinks[0]}:`, error)
-        return { emails: [], twitterHandles: [] }
+        return {
+          emails: [],
+          socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+          aboutUrl: aboutLinks[0],
+        }
       }
     }
 
-    return { emails: [], twitterHandles: [] }
+    return {
+      emails: [],
+      socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+      aboutUrl: null,
+    }
   } catch (error) {
     console.error("Error in checkAboutPage:", error)
-    return { emails: [], twitterHandles: [] }
+    return {
+      emails: [],
+      socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+      aboutUrl: null,
+    }
   }
 }
 
@@ -660,16 +1021,28 @@ export async function processBatches(products: Product[], batchSize = 5): Promis
 // Enhance the scrapeWebsite function to check more locations and be more thorough
 export async function scrapeWebsite(url: string): Promise<{
   emails: string[]
-  twitterHandles: string[]
-  contactLinks: string[]
-  externalLinks: string[]
+  socialMedia: {
+    twitter: string[]
+    facebook: string[]
+    instagram: string[]
+    linkedin: string[]
+  }
+  contactUrl: string | null
+  aboutUrl: string | null
+  exactWebsiteUrl: string
 }> {
   // Default empty response
   const emptyResult = {
     emails: [],
-    twitterHandles: [],
-    contactLinks: [],
-    externalLinks: [],
+    socialMedia: {
+      twitter: [],
+      facebook: [],
+      instagram: [],
+      linkedin: [],
+    },
+    contactUrl: null,
+    aboutUrl: null,
+    exactWebsiteUrl: url,
   }
 
   // Validate URL before proceeding
@@ -696,6 +1069,10 @@ export async function scrapeWebsite(url: string): Promise<{
   }
 
   try {
+    // First, try to get the canonical URL
+    const exactWebsiteUrl = await findCanonicalUrl(url)
+    console.log(`Canonical URL: ${exactWebsiteUrl}`)
+
     console.log(`Checking main page: ${url}`)
 
     // Use a longer timeout for the main page fetch
@@ -716,7 +1093,7 @@ export async function scrapeWebsite(url: string): Promise<{
 
     if (!response || !response.ok) {
       console.log(`Failed to fetch ${url}: ${response ? `Status ${response.status}` : "Request failed"}`)
-      return emptyResult
+      return { ...emptyResult, exactWebsiteUrl }
     }
 
     // Use text() with a timeout to prevent hanging on large responses
@@ -731,7 +1108,7 @@ export async function scrapeWebsite(url: string): Promise<{
     })
 
     if (!html) {
-      return emptyResult
+      return { ...emptyResult, exactWebsiteUrl }
     }
 
     console.log(`Successfully fetched ${url}, HTML length: ${html.length}`)
@@ -740,9 +1117,15 @@ export async function scrapeWebsite(url: string): Promise<{
     try {
       const parsePromise = new Promise<{
         emails: string[]
-        twitterHandles: string[]
-        contactLinks: string[]
-        externalLinks: string[]
+        socialMedia: {
+          twitter: string[]
+          facebook: string[]
+          instagram: string[]
+          linkedin: string[]
+        }
+        contactUrl: string | null
+        aboutUrl: string | null
+        exactWebsiteUrl: string
       }>(async (resolve) => {
         try {
           // Extract emails directly from HTML
@@ -750,7 +1133,7 @@ export async function scrapeWebsite(url: string): Promise<{
 
           // Use cheerio for parsing
           const $ = cheerio.load(html)
-          const twitterHandles = extractTwitterHandles($)
+          const socialMedia = extractSocialMedia($)
 
           // Look for emails in specific elements that often contain contact info
           const contactElements = [
@@ -791,7 +1174,10 @@ export async function scrapeWebsite(url: string): Promise<{
           })
 
           // Extract from footer
-          let footerResults = { emails: [], twitterHandles: [] }
+          let footerResults = {
+            emails: [],
+            socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+          }
           try {
             footerResults = extractFromFooter($)
           } catch (footerError) {
@@ -800,7 +1186,11 @@ export async function scrapeWebsite(url: string): Promise<{
           }
 
           // Check contact page
-          let contactPageResults = { emails: [], twitterHandles: [] }
+          let contactPageResults = {
+            emails: [],
+            socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+            contactUrl: null,
+          }
           try {
             contactPageResults = await checkContactPage(url, $)
           } catch (contactPageError) {
@@ -809,56 +1199,16 @@ export async function scrapeWebsite(url: string): Promise<{
           }
 
           // Also check about page, which often contains contact info
-          let aboutPageResults = { emails: [], twitterHandles: [] }
+          let aboutPageResults = {
+            emails: [],
+            socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
+            aboutUrl: null,
+          }
           try {
             aboutPageResults = await checkAboutPage(url, $)
           } catch (aboutPageError) {
             console.error(`Error checking about page for ${url}:`, aboutPageError)
             // Continue with empty about page results
-          }
-
-          // Find contact links
-          const contactLinks: string[] = []
-          try {
-            $("a").each((_, element) => {
-              try {
-                const href = $(element).attr("href") || ""
-                const text = $(element).text().toLowerCase()
-
-                if (
-                  text.includes("contact") ||
-                  href.includes("contact") ||
-                  text.includes("get in touch") ||
-                  text.includes("reach out") ||
-                  text.includes("email us") ||
-                  text.includes("support") ||
-                  href.includes("support") ||
-                  href.startsWith("mailto:")
-                ) {
-                  let contactUrl = href
-
-                  // Handle relative URLs
-                  if (contactUrl && !contactUrl.startsWith("http") && !contactUrl.startsWith("mailto:")) {
-                    if (contactUrl.startsWith("/")) {
-                      const urlObj = new URL(url)
-                      contactUrl = `${urlObj.protocol}//${urlObj.host}${contactUrl}`
-                    } else {
-                      const baseWithSlash = url.endsWith("/") ? url : `${url}/`
-                      contactUrl = `${baseWithSlash}${contactUrl}`
-                    }
-                  }
-
-                  if (contactUrl && (isValidUrl(contactUrl) || contactUrl.startsWith("mailto:"))) {
-                    contactLinks.push(contactUrl)
-                  }
-                }
-              } catch (linkError) {
-                // Skip this link and continue
-              }
-            })
-          } catch (contactLinksError) {
-            console.error(`Error finding contact links for ${url}:`, contactLinksError)
-            // Continue with empty contact links
           }
 
           // Combine all results, removing duplicates
@@ -872,39 +1222,72 @@ export async function scrapeWebsite(url: string): Promise<{
                 ...aboutPageResults.emails,
               ]),
             ],
-            twitterHandles: [
-              ...new Set([
-                ...twitterHandles,
-                ...footerResults.twitterHandles,
-                ...contactPageResults.twitterHandles,
-                ...aboutPageResults.twitterHandles,
-              ]),
-            ],
-            contactLinks: [...new Set(contactLinks)],
-            externalLinks: [], // Skip external links to save time
+            socialMedia: {
+              twitter: [
+                ...new Set([
+                  ...socialMedia.twitter,
+                  ...footerResults.socialMedia.twitter,
+                  ...contactPageResults.socialMedia.twitter,
+                  ...aboutPageResults.socialMedia.twitter,
+                ]),
+              ],
+              facebook: [
+                ...new Set([
+                  ...socialMedia.facebook,
+                  ...footerResults.socialMedia.facebook,
+                  ...contactPageResults.socialMedia.facebook,
+                  ...aboutPageResults.socialMedia.facebook,
+                ]),
+              ],
+              instagram: [
+                ...new Set([
+                  ...socialMedia.instagram,
+                  ...footerResults.socialMedia.instagram,
+                  ...contactPageResults.socialMedia.instagram,
+                  ...aboutPageResults.socialMedia.instagram,
+                ]),
+              ],
+              linkedin: [
+                ...new Set([
+                  ...socialMedia.linkedin,
+                  ...footerResults.socialMedia.linkedin,
+                  ...contactPageResults.socialMedia.linkedin,
+                  ...aboutPageResults.socialMedia.linkedin,
+                ]),
+              ],
+            },
+            contactUrl: contactPageResults.contactUrl,
+            aboutUrl: aboutPageResults.aboutUrl,
+            exactWebsiteUrl,
           })
         } catch (parseError) {
           console.error(`Error in parse promise for ${url}:`, parseError)
-          resolve(emptyResult) // Resolve with empty result instead of rejecting
+          resolve({ ...emptyResult, exactWebsiteUrl }) // Resolve with empty result instead of rejecting
         }
       })
 
       const parseTimeoutPromise = new Promise<{
         emails: string[]
-        twitterHandles: string[]
-        contactLinks: string[]
-        externalLinks: string[]
+        socialMedia: {
+          twitter: string[]
+          facebook: string[]
+          instagram: string[]
+          linkedin: string[]
+        }
+        contactUrl: string | null
+        aboutUrl: string | null
+        exactWebsiteUrl: string
       }>((_, reject) => {
         setTimeout(() => reject(new Error("Parsing timed out")), 8000) // Increased timeout for more thorough parsing
       })
 
       return await Promise.race([parsePromise, parseTimeoutPromise]).catch((error) => {
         console.error(`Error parsing HTML from ${url}:`, error)
-        return emptyResult
+        return { ...emptyResult, exactWebsiteUrl }
       })
     } catch (error) {
       console.error(`Error in HTML parsing for ${url}:`, error)
-      return emptyResult
+      return { ...emptyResult, exactWebsiteUrl }
     }
   } catch (error) {
     console.error(`Error scraping ${url}:`, error)
@@ -995,20 +1378,32 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
         const processPromise = scrapeWebsite(website)
         const timeoutPromise = new Promise<{
           emails: string[]
-          twitterHandles: string[]
-          contactLinks: string[]
-          externalLinks: string[]
+          socialMedia: {
+            twitter: string[]
+            facebook: string[]
+            instagram: string[]
+            linkedin: string[]
+          }
+          contactUrl: string | null
+          aboutUrl: string | null
+          exactWebsiteUrl: string
         }>((_, reject) => {
-          setTimeout(() => reject(new Error(`Processing timed out for ${product.name}`)), 10000) // Increased timeout for more thorough processing
+          setTimeout(() => reject(new Error(`Processing timed out for ${product.name}`)), 15000) // Increased timeout for more thorough processing
         })
 
         const contactInfo = await Promise.race([processPromise, timeoutPromise]).catch((error) => {
           console.error(`Error or timeout processing ${product.name}:`, error)
           return {
             emails: [],
-            twitterHandles: [],
-            contactLinks: [],
-            externalLinks: [],
+            socialMedia: {
+              twitter: [],
+              facebook: [],
+              instagram: [],
+              linkedin: [],
+            },
+            contactUrl: null,
+            aboutUrl: null,
+            exactWebsiteUrl: website,
           }
         })
 
@@ -1017,11 +1412,15 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
         if (index !== -1) {
           allUpdatedProducts[index] = {
             ...allUpdatedProducts[index], // Keep existing properties
-            website: website, // Ensure we save the resolved website URL
+            website: contactInfo.exactWebsiteUrl || website, // Use the exact website URL we found
             emails: contactInfo.emails || [],
-            twitterHandles: contactInfo.twitterHandles || [],
-            contactLinks: contactInfo.contactLinks || [],
-            externalLinks: contactInfo.externalLinks || [],
+            twitterHandles: contactInfo.socialMedia.twitter || [],
+            facebookLinks: contactInfo.socialMedia.facebook || [],
+            instagramLinks: contactInfo.socialMedia.instagram || [],
+            linkedinLinks: contactInfo.socialMedia.linkedin || [],
+            contactLinks: contactInfo.contactUrl ? [contactInfo.contactUrl] : [],
+            aboutLinks: contactInfo.aboutUrl ? [contactInfo.aboutUrl] : [],
+            externalLinks: [], // Skip external links to save time
           }
         }
 

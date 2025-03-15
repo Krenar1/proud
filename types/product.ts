@@ -19,7 +19,11 @@ export interface Product {
   makers: Maker[]
   emails?: string[]
   twitterHandles?: string[]
+  facebookLinks?: string[]
+  instagramLinks?: string[]
+  linkedinLinks?: string[]
   contactLinks?: string[]
+  aboutLinks?: string[]
   externalLinks?: string[]
 }
 

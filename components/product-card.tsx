@@ -1,6 +1,6 @@
 import Image from "next/image"
 import { formatDistanceToNow } from "date-fns"
-import { ExternalLink, ArrowUpCircle, Mail, Twitter, Link } from "lucide-react"
+import { ExternalLink, ArrowUpCircle, Mail, Twitter, Link, Facebook, Instagram, Linkedin } from "lucide-react"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -81,7 +81,12 @@ export function ProductCard({ product }: ProductCardProps) {
             <span className="text-xs text-muted-foreground">+{product.makers.length - 3} more</span>
           )}
         </div>
-        {(product.emails?.length || product.twitterHandles?.length || product.contactLinks?.length) && (
+        {(product.emails?.length ||
+          product.twitterHandles?.length ||
+          product.facebookLinks?.length ||
+          product.instagramLinks?.length ||
+          product.linkedinLinks?.length ||
+          product.contactLinks?.length) && (
           <div className="mt-3 pt-3 border-t border-border">
             <h4 className="text-xs font-medium mb-2">Contact Information</h4>
             <div className="flex flex-wrap gap-2">
@@ -101,6 +106,36 @@ export function ProductCard({ product }: ProductCardProps) {
                   <span className="text-xs">{product.twitterHandles[0]}</span>
                   {product.twitterHandles.length > 1 && (
                     <span className="text-xs text-muted-foreground">+{product.twitterHandles.length - 1}</span>
+                  )}
+                </div>
+              )}
+
+              {product.facebookLinks && product.facebookLinks.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <Facebook size={12} className="text-muted-foreground" />
+                  <span className="text-xs">Facebook</span>
+                  {product.facebookLinks.length > 1 && (
+                    <span className="text-xs text-muted-foreground">+{product.facebookLinks.length - 1}</span>
+                  )}
+                </div>
+              )}
+
+              {product.instagramLinks && product.instagramLinks.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <Instagram size={12} className="text-muted-foreground" />
+                  <span className="text-xs">Instagram</span>
+                  {product.instagramLinks.length > 1 && (
+                    <span className="text-xs text-muted-foreground">+{product.instagramLinks.length - 1}</span>
+                  )}
+                </div>
+              )}
+
+              {product.linkedinLinks && product.linkedinLinks.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <Linkedin size={12} className="text-muted-foreground" />
+                  <span className="text-xs">LinkedIn</span>
+                  {product.linkedinLinks.length > 1 && (
+                    <span className="text-xs text-muted-foreground">+{product.linkedinLinks.length - 1}</span>
                   )}
                 </div>
               )}

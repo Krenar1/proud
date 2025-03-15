@@ -43,20 +43,86 @@ export function ProductsHeader() {
         return
       }
 
-      // Create a blob and download it
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = url
-      link.setAttribute("download", `product-hunt-data-${new Date().toISOString().split("T")[0]}.csv`)
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+      // Get the current export format from settings
+      let format = "csv"
+      try {
+        const savedSettings = localStorage.getItem("productHuntScraperSettings")
+        if (savedSettings) {
+          const settings = JSON.parse(savedSettings)
+          format = settings.exportFormat || "csv"
+          console.log(`Using export format from settings: ${format}`)
+        }
+      } catch (error) {
+        console.error("Error getting export format:", error)
+      }
 
-      toast({
-        title: "Export Successful",
-        description: `Exported ${lines.length - 1} products to CSV`,
-      })
+      // Generate filename
+      const filename = `product-hunt-data-${new Date().toISOString().split("T")[0]}`
+
+      // Handle different formats
+      if (format === "json") {
+        try {
+          // Parse CSV to JSON
+          const headers = lines[0].split(",")
+          const jsonData = []
+
+          for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue
+            const obj = {}
+            const currentLine = lines[i].split(",")
+
+            for (let j = 0; j < headers.length; j++) {
+              obj[headers[j]] = currentLine[j]
+            }
+            jsonData.push(obj)
+          }
+
+          // Create JSON blob and download
+          const jsonContent = JSON.stringify(jsonData, null, 2)
+          const blob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" })
+          const url = URL.createObjectURL(blob)
+          const link = document.createElement("a")
+          link.href = url
+          link.setAttribute("download", `${filename}.json`)
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          URL.revokeObjectURL(url)
+
+          toast({
+            title: "Export Successful",
+            description: `Exported ${lines.length - 1} products to JSON format`,
+          })
+        } catch (jsonError) {
+          console.error("JSON conversion error:", jsonError)
+          toast({
+            title: "JSON Export Failed",
+            description: "There was an error converting to JSON. Falling back to CSV.",
+            variant: "warning",
+          })
+          // Fall back to CSV
+          format = "csv"
+        }
+      }
+
+      // Handle CSV and Excel formats
+      if (format === "csv" || format === "excel") {
+        const extension = format === "excel" ? ".xlsx" : ".csv"
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.setAttribute("download", `${filename}${extension}`)
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+
+        toast({
+          title: "Export Successful",
+          description: `Exported ${lines.length - 1} products to ${format === "excel" ? "Excel" : "CSV"} format`,
+        })
+      }
     } catch (error) {
       console.error("Export error:", error)
       toast({
@@ -90,7 +156,7 @@ export function ProductsHeader() {
         </Button>
         <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
           <Download size={16} className="mr-1" />
-          <span>{isExporting ? "Exporting..." : "Export CSV"}</span>
+          <span>{isExporting ? "Exporting..." : "Export Data"}</span>
         </Button>
       </div>
     </div>

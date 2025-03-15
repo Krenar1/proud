@@ -83,8 +83,76 @@ export function ProductListClient({
     }
 
     try {
+      // Get the current export format from settings
+      let format = "csv"
+      try {
+        const savedSettings = localStorage.getItem("productHuntScraperSettings")
+        if (savedSettings) {
+          const settings = JSON.parse(savedSettings)
+          format = settings.exportFormat || "csv"
+          console.log(`Using export format from settings: ${format}`)
+        }
+      } catch (error) {
+        console.error("Error getting export format:", error)
+      }
+
+      // Generate filename
+      const filename = `product-hunt-contacts-${new Date().toISOString().split("T")[0]}`
+
+      // Handle different formats
+      if (format === "json") {
+        try {
+          // Parse CSV to JSON
+          const lines = csvData.split("\n")
+          const headers = lines[0].split(",")
+          const jsonData = []
+
+          for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue
+            const obj = {}
+            const currentLine = lines[i].split(",")
+
+            for (let j = 0; j < headers.length; j++) {
+              obj[headers[j]] = currentLine[j]
+            }
+            jsonData.push(obj)
+          }
+
+          // Create JSON blob and download
+          const jsonContent = JSON.stringify(jsonData, null, 2)
+          const blob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" })
+          const url = URL.createObjectURL(blob)
+          const link = document.createElement("a")
+          link.href = url
+          link.download = `${filename}.json`
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          URL.revokeObjectURL(url)
+
+          toast({
+            title: "Download Complete",
+            description: "Contact information has been downloaded as a JSON file",
+          })
+          return
+        } catch (jsonError) {
+          console.error("JSON conversion error:", jsonError)
+          toast({
+            title: "JSON Export Failed",
+            description: "There was an error converting to JSON. Falling back to CSV.",
+            variant: "warning",
+          })
+          // Fall back to CSV
+          format = "csv"
+        }
+      }
+
+      // Handle CSV and Excel formats
+      const extension = format === "excel" ? ".xlsx" : ".csv"
+      const mimeType = "text/csv;charset=utf-8;"
+
       // Create a Blob with the CSV data
-      const blob = new Blob([csvData], { type: "text/csv;charset=utf-8;" })
+      const blob = new Blob([csvData], { type: mimeType })
 
       // Create a download URL
       const url = URL.createObjectURL(blob)
@@ -92,7 +160,7 @@ export function ProductListClient({
       // Create a link element
       const link = document.createElement("a")
       link.href = url
-      link.download = `product-hunt-contacts-${new Date().toISOString().split("T")[0]}.csv`
+      link.download = `${filename}${extension}`
 
       // Append to body, click, and remove
       document.body.appendChild(link)
@@ -103,15 +171,15 @@ export function ProductListClient({
       URL.revokeObjectURL(url)
 
       toast({
-        title: "CSV Downloaded",
-        description: "Contact information has been downloaded as a CSV file",
+        title: "Download Complete",
+        description: `Contact information has been downloaded as a ${format === "excel" ? "Excel" : "CSV"} file`,
       })
     } catch (error) {
       console.error("Download error:", error)
 
       toast({
         title: "Download Failed",
-        description: "Failed to download CSV. Try again or check console for details.",
+        description: "Failed to download file. Try again or check console for details.",
         variant: "destructive",
       })
     }
@@ -189,23 +257,81 @@ export function ProductListClient({
 
       // Trigger automatic download
       try {
-        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement("a")
-        link.href = url
-        link.download = `product-hunt-contacts-${new Date().toISOString().split("T")[0]}.csv`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
+        // Get the current export format from settings
+        let format = "csv"
+        try {
+          const savedSettings = localStorage.getItem("productHuntScraperSettings")
+          if (savedSettings) {
+            const settings = JSON.parse(savedSettings)
+            format = settings.exportFormat || "csv"
+            console.log(`Using export format for auto-download: ${format}`)
+          }
+        } catch (error) {
+          console.error("Error getting export format:", error)
+        }
+
+        // Generate filename
+        const filename = `product-hunt-contacts-${new Date().toISOString().split("T")[0]}`
+
+        // Handle different formats
+        if (format === "json") {
+          try {
+            // Parse CSV to JSON
+            const lines = csvContent.split("\n")
+            const headers = lines[0].split(",")
+            const jsonData = []
+
+            for (let i = 1; i < lines.length; i++) {
+              if (!lines[i].trim()) continue
+              const obj = {}
+              const currentLine = lines[i].split(",")
+
+              for (let j = 0; j < headers.length; j++) {
+                obj[headers[j]] = currentLine[j]
+              }
+              jsonData.push(obj)
+            }
+
+            // Create JSON blob and download
+            const jsonContent = JSON.stringify(jsonData, null, 2)
+            const blob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" })
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement("a")
+            link.href = url
+            link.download = `${filename}.json`
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            URL.revokeObjectURL(url)
+          } catch (jsonError) {
+            console.error("JSON conversion error:", jsonError)
+            // Fall back to CSV
+            format = "csv"
+          }
+        }
+
+        // Handle CSV and Excel formats
+        if (format === "csv" || format === "excel") {
+          const extension = format === "excel" ? ".xlsx" : ".csv"
+          const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+          const url = URL.createObjectURL(blob)
+          const link = document.createElement("a")
+          link.href = url
+          link.download = `${filename}${extension}`
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          URL.revokeObjectURL(url)
+        }
       } catch (downloadError) {
-        console.error("Error auto-downloading CSV:", downloadError)
+        console.error("Error auto-downloading file:", downloadError)
         // We'll still have the manual download button as fallback
       }
 
+      // Update the toast message to reflect the format
       toast({
         title: "Contact Extraction Complete",
-        description: `Found contact info for ${productsWithContactInfo.length} out of ${updatedProducts.length} products. CSV has been downloaded.`,
+        description: `Found contact info for ${productsWithContactInfo.length} out of ${updatedProducts.length} products. Data has been downloaded.`,
       })
     } catch (error) {
       console.error("Contact extraction error:", error)
@@ -251,9 +377,14 @@ export function ProductListClient({
             setEndCursor(data.posts.pageInfo.endCursor)
             setHasMorePages(data.posts.pageInfo.hasNextPage)
 
+            // Automatically increase maxProducts when loading more
+            const newTotal = products.length + newProducts.length
+            // Set maxProducts to either the current value or a reasonable value based on the new total
+            setMaxProducts(Math.max(maxProducts, Math.ceil(newTotal / 2)))
+
             toast({
               title: "Products Loaded",
-              description: `Loaded ${data.posts.edges.length} more products`,
+              description: `Loaded ${data.posts.edges.length} more products. Processing limit updated to ${maxProducts} products.`,
             })
           }
           setIsLoadingMore(false)
@@ -286,21 +417,21 @@ export function ProductListClient({
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium">Products to Process: {maxProducts}</label>
               <span className="text-xs text-muted-foreground">
-                {maxProducts === 1 ? "1 product" : `${maxProducts} products`}
+                {maxProducts === 1 ? "1 product" : `${maxProducts} of ${products.length} available products`}
               </span>
             </div>
             <Slider
               value={[maxProducts]}
               min={1}
-              max={50}
+              max={products.length}
               step={5}
               onValueChange={(value) => setMaxProducts(value[0])}
               className="w-full"
               disabled={isExtracting}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Note: Processing more than 10 products will use batch processing to avoid timeouts. Larger batches will
-              take longer but should complete successfully.
+              Note: Processing more than 10 products will use batch processing to avoid timeouts. The slider will
+              automatically adjust when loading more products.
             </p>
           </div>
         </div>
@@ -327,7 +458,7 @@ export function ProductListClient({
 
           <Button variant="outline" disabled={!csvData} onClick={handleDownloadCsv} className="w-full md:w-auto">
             <Download className="mr-2 h-4 w-4" />
-            Download CSV
+            Download Data
           </Button>
         </div>
       </div>
