@@ -25,6 +25,7 @@ import {
   Download,
   Calendar,
   CalendarDays,
+  Cloud,
 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
@@ -81,22 +82,49 @@ export function AutoScraperSettings() {
   const [isInitializingTimeRange, setIsInitializingTimeRange] = useState(false)
   const [timeRangeProgress, setTimeRangeProgress] = useState(0)
   const [initMode, setInitMode] = useState<"today" | "week">("week")
+  const [isSavingSettings, setIsSavingSettings] = useState(false)
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true)
 
   // Load saved settings on component mount
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        // Load webhook URL and enabled status
-        const savedWebhookUrl = localStorage.getItem(STORAGE_KEYS.WEBHOOK_URL) || ""
-        const savedIsEnabled = localStorage.getItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED) === "true"
+        setIsLoadingSettings(true)
 
-        console.log("Loaded settings from localStorage:", {
-          webhookUrl: savedWebhookUrl ? "URL exists" : "No URL",
-          isEnabled: savedIsEnabled,
-        })
+        // First try to load from server
+        console.log("Attempting to load settings from server...")
+        const response = await fetch("/api/settings")
 
-        setWebhookUrl(savedWebhookUrl)
-        setIsEnabled(savedIsEnabled)
+        if (response.ok) {
+          const serverSettings = await response.json()
+          console.log("Loaded settings from server:", serverSettings)
+
+          if (serverSettings.webhookUrl) {
+            setWebhookUrl(serverSettings.webhookUrl)
+          }
+
+          if (typeof serverSettings.autoScraperEnabled === "boolean") {
+            setIsEnabled(serverSettings.autoScraperEnabled)
+          }
+
+          // Also save to localStorage as fallback
+          localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, serverSettings.webhookUrl || "")
+          localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, serverSettings.autoScraperEnabled ? "true" : "false")
+
+          console.log("Server settings loaded and saved to localStorage")
+        } else {
+          console.log("Failed to load settings from server, falling back to localStorage")
+
+          // Fall back to localStorage
+          const savedWebhookUrl = localStorage.getItem(STORAGE_KEYS.WEBHOOK_URL) || ""
+          const savedIsEnabled = localStorage.getItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED) === "true"
+
+          setWebhookUrl(savedWebhookUrl)
+          setIsEnabled(savedIsEnabled)
+
+          // Save localStorage settings to server for future use
+          saveSettingsToServer(savedWebhookUrl, savedIsEnabled)
+        }
 
         // Load seen product IDs from localStorage
         const savedProductIds = localStorage.getItem(STORAGE_KEYS.SEEN_PRODUCT_IDS)
@@ -134,15 +162,59 @@ export function AutoScraperSettings() {
         }
 
         // Start auto-scraper if it was enabled
-        if (savedIsEnabled && savedWebhookUrl) {
-          setIsEnabled(true)
-          startAutoScraper(savedWebhookUrl)
+        const savedWebhookUrl = localStorage.getItem(STORAGE_KEYS.WEBHOOK_URL) || ""
+        const savedIsEnabled = localStorage.getItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED) === "true"
+        const shouldStartScraper =
+          (await (async () => {
+            try {
+              const response = await fetch("/api/settings")
+              if (response.ok) {
+                const serverSettings = await response.json()
+                return serverSettings?.autoScraperEnabled
+              }
+              return savedIsEnabled
+            } catch (error) {
+              console.error("Failed to fetch settings from server:", error)
+              return savedIsEnabled
+            }
+          })()) || savedIsEnabled
+        const scraperUrl =
+          (await (async () => {
+            try {
+              const response = await fetch("/api/settings")
+              if (response.ok) {
+                const serverSettings = await response.json()
+                return serverSettings?.webhookUrl
+              }
+              return savedWebhookUrl
+            } catch (error) {
+              console.error("Failed to fetch settings from server:", error)
+              return savedWebhookUrl
+            }
+          })()) || savedWebhookUrl
+
+        if (shouldStartScraper && scraperUrl) {
+          console.log("Auto-starting scraper with URL:", scraperUrl)
+          startAutoScraper(scraperUrl)
         }
 
         // Set up periodic sync of seen product IDs
         syncIntervalRef.current = setInterval(syncSeenProductIds, 5 * 60 * 1000) // Sync every 5 minutes
       } catch (error) {
         console.error("Error loading settings:", error)
+
+        // Fall back to localStorage as a last resort
+        const savedWebhookUrl = localStorage.getItem(STORAGE_KEYS.WEBHOOK_URL) || ""
+        const savedIsEnabled = localStorage.getItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED) === "true"
+
+        setWebhookUrl(savedWebhookUrl)
+        setIsEnabled(savedIsEnabled)
+
+        if (savedIsEnabled && savedWebhookUrl) {
+          startAutoScraper(savedWebhookUrl)
+        }
+      } finally {
+        setIsLoadingSettings(false)
       }
     }
 
@@ -159,17 +231,37 @@ export function AutoScraperSettings() {
     }
   }, [])
 
-  // Add this after the other useEffect hooks
-  useEffect(() => {
-    // Save settings whenever they change
-    if (webhookUrl) {
-      localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, webhookUrl)
-      console.log("Saved webhook URL to localStorage (from effect):", webhookUrl)
-    }
+  // Function to save settings to the server
+  const saveSettingsToServer = async (url: string, enabled: boolean) => {
+    try {
+      setIsSavingSettings(true)
+      console.log("Saving settings to server:", { webhookUrl: url, autoScraperEnabled: enabled })
 
-    localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, isEnabled.toString())
-    console.log("Saved auto-scraper enabled status to localStorage:", isEnabled)
-  }, [webhookUrl, isEnabled])
+      const response = await fetch("/api/settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          webhookUrl: url,
+          autoScraperEnabled: enabled,
+        }),
+      })
+
+      if (response.ok) {
+        console.log("Settings saved to server successfully")
+        return true
+      } else {
+        console.error("Failed to save settings to server:", await response.text())
+        return false
+      }
+    } catch (error) {
+      console.error("Error saving settings to server:", error)
+      return false
+    } finally {
+      setIsSavingSettings(false)
+    }
+  }
 
   // Update product counters
   const updateProductCounters = (products: Product[]) => {
@@ -309,7 +401,10 @@ export function AutoScraperSettings() {
         setStatus("error")
         setStatusMessage(result.message)
         setIsEnabled(false)
+
+        // Save disabled state to both localStorage and server
         localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, "false")
+        await saveSettingsToServer(url, false)
 
         toast({
           title: "Failed to Enable Auto-Scraper",
@@ -321,7 +416,10 @@ export function AutoScraperSettings() {
       setStatus("error")
       setStatusMessage(`Error: ${error.message}`)
       setIsEnabled(false)
+
+      // Save disabled state to both localStorage and server
       localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, "false")
+      await saveSettingsToServer(url, false)
 
       toast({
         title: "Error",
@@ -434,7 +532,12 @@ export function AutoScraperSettings() {
 
   const handleToggleAutoScraper = async (enabled: boolean) => {
     setIsEnabled(enabled)
+
+    // Save to localStorage
     localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, enabled.toString())
+
+    // Save to server
+    await saveSettingsToServer(webhookUrl, enabled)
 
     if (enabled) {
       if (!webhookUrl || !webhookUrl.includes("discord.com/api/webhooks")) {
@@ -444,11 +547,18 @@ export function AutoScraperSettings() {
           variant: "destructive",
         })
         setIsEnabled(false)
+
+        // Update both localStorage and server
         localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, "false")
+        await saveSettingsToServer(webhookUrl, false)
+
         return
       }
 
+      // Save webhook URL to both localStorage and server
       localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, webhookUrl)
+      await saveSettingsToServer(webhookUrl, true)
+
       await startAutoScraper(webhookUrl)
     } else {
       stopAutoScraper()
@@ -458,7 +568,10 @@ export function AutoScraperSettings() {
   const handleManualCheck = async () => {
     if (!webhookUrl || isChecking) return
 
+    // Save webhook URL to both localStorage and server
     localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, webhookUrl)
+    await saveSettingsToServer(webhookUrl, isEnabled)
+
     await checkForProducts(webhookUrl)
   }
 
@@ -722,6 +835,43 @@ export function AutoScraperSettings() {
     }
   }
 
+  // Handle saving all settings
+  const handleSaveAllSettings = async () => {
+    try {
+      setIsSavingSettings(true)
+
+      // Save to localStorage
+      localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, webhookUrl)
+      localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, isEnabled.toString())
+
+      // Save to server
+      const success = await saveSettingsToServer(webhookUrl, isEnabled)
+
+      if (success) {
+        toast({
+          title: "Settings Saved",
+          description: "Your settings have been saved to the server and will be available on all devices",
+        })
+      } else {
+        toast({
+          title: "Warning",
+          description:
+            "Settings saved locally but failed to save to server. They may not be available on other devices.",
+          variant: "warning",
+        })
+      }
+    } catch (error) {
+      console.error("Error saving settings:", error)
+      toast({
+        title: "Error",
+        description: "Failed to save settings. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSavingSettings(false)
+    }
+  }
+
   return (
     <Card className="w-full">
       <CardHeader>
@@ -736,8 +886,8 @@ export function AutoScraperSettings() {
               Triple API Key Rotation
             </Badge>
             <Badge variant="outline" className="flex items-center gap-1">
-              <Database className="h-3 w-3" />
-              Persistent Storage
+              <Cloud className="h-3 w-3" />
+              Server-Synced Settings
             </Badge>
           </div>
         </div>
@@ -747,316 +897,318 @@ export function AutoScraperSettings() {
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <div className="flex flex-col md:flex-row justify-between gap-4 mb-2">
-          <div className="flex-1">
-            <div className="space-y-2">
-              <Label htmlFor="webhookUrl">Discord Webhook URL</Label>
-              <Input
-                id="webhookUrl"
-                placeholder="https://discord.com/api/webhooks/..."
-                value={webhookUrl}
-                onChange={(e) => {
-                  const newUrl = e.target.value
-                  setWebhookUrl(newUrl)
-                  // Save immediately to localStorage when changed
-                  localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, newUrl)
-                  console.log("Saved webhook URL to localStorage:", newUrl)
-                }}
-                type="url"
-                className="font-mono text-sm"
+        {isLoadingSettings ? (
+          <div className="flex items-center justify-center p-4">
+            <Loader2 className="h-6 w-6 animate-spin mr-2" />
+            <span>Loading settings...</span>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-col md:flex-row justify-between gap-4 mb-2">
+              <div className="flex-1">
+                <div className="space-y-2">
+                  <Label htmlFor="webhookUrl">Discord Webhook URL</Label>
+                  <Input
+                    id="webhookUrl"
+                    placeholder="https://discord.com/api/webhooks/..."
+                    value={webhookUrl}
+                    onChange={(e) => {
+                      const newUrl = e.target.value
+                      setWebhookUrl(newUrl)
+                    }}
+                    type="url"
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Create a webhook in your Discord server settings and paste the URL here
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col justify-end space-y-2 min-w-[200px]">
+                <div className="bg-muted/40 p-3 rounded-lg border border-border">
+                  <h4 className="text-sm font-medium mb-2 flex items-center justify-between">
+                    <span>Scraping Stats</span>
+                    <Badge variant="secondary" className="ml-2">
+                      Real-time
+                    </Badge>
+                  </h4>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span>Total Scraped:</span>
+                      <span className="font-bold">{totalScrapedCount}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Today:</span>
+                      <span className="font-bold">{todayScrapedCount}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>New This Session:</span>
+                      <span className="font-bold">{newProductsCount}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <Popover open={isExportPopoverOpen} onOpenChange={setIsExportPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full">
+                      <Download className="mr-2 h-4 w-4" />
+                      Export Scraped Data
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80">
+                    <div className="space-y-4">
+                      <h4 className="font-medium">Export Scraped Products</h4>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="dateFilter">Date Range</Label>
+                        <Select
+                          value={dateFilter}
+                          onValueChange={(value: "today" | "yesterday" | "last7days" | "all") => setDateFilter(value)}
+                        >
+                          <SelectTrigger id="dateFilter">
+                            <SelectValue placeholder="Select date range" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="today">Today</SelectItem>
+                            <SelectItem value="yesterday">Yesterday</SelectItem>
+                            <SelectItem value="last7days">Last 7 Days</SelectItem>
+                            <SelectItem value="all">All Time</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="exportFormat">Export Format</Label>
+                        <Select
+                          value={exportFormat}
+                          onValueChange={(value: "csv" | "json" | "excel") => setExportFormat(value)}
+                        >
+                          <SelectTrigger id="exportFormat">
+                            <SelectValue placeholder="Select format" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="csv">CSV</SelectItem>
+                            <SelectItem value="json">JSON</SelectItem>
+                            <SelectItem value="excel">Excel</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <Button
+                        className="w-full"
+                        onClick={handleDownloadProducts}
+                        disabled={isDownloading || scrapedProducts.length === 0}
+                      >
+                        {isDownloading ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="mr-2 h-4 w-4" />
+                            Download {getFilteredProducts().length} Products
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between space-x-2">
+              <div className="flex flex-col space-y-1">
+                <Label htmlFor="autoScraper">Enable Auto-Scraper</Label>
+                <p className="text-xs text-muted-foreground">
+                  Check for new products every 3 minutes and extract contact information
+                </p>
+              </div>
+              <Switch
+                id="autoScraper"
+                checked={isEnabled}
+                onCheckedChange={handleToggleAutoScraper}
+                disabled={isInitializing}
               />
-              <p className="text-xs text-muted-foreground">
-                Create a webhook in your Discord server settings and paste the URL here
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-col justify-end space-y-2 min-w-[200px]">
-            <div className="bg-muted/40 p-3 rounded-lg border border-border">
-              <h4 className="text-sm font-medium mb-2 flex items-center justify-between">
-                <span>Scraping Stats</span>
-                <Badge variant="secondary" className="ml-2">
-                  Real-time
-                </Badge>
-              </h4>
-              <div className="space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span>Total Scraped:</span>
-                  <span className="font-bold">{totalScrapedCount}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Today:</span>
-                  <span className="font-bold">{todayScrapedCount}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>New This Session:</span>
-                  <span className="font-bold">{newProductsCount}</span>
-                </div>
-              </div>
             </div>
 
-            <Popover open={isExportPopoverOpen} onOpenChange={setIsExportPopoverOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="w-full">
-                  <Download className="mr-2 h-4 w-4" />
-                  Export Scraped Data
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-80">
-                <div className="space-y-4">
-                  <h4 className="font-medium">Export Scraped Products</h4>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="dateFilter">Date Range</Label>
-                    <Select
-                      value={dateFilter}
-                      onValueChange={(value: "today" | "yesterday" | "last7days" | "all") => setDateFilter(value)}
-                    >
-                      <SelectTrigger id="dateFilter">
-                        <SelectValue placeholder="Select date range" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="today">Today</SelectItem>
-                        <SelectItem value="yesterday">Yesterday</SelectItem>
-                        <SelectItem value="last7days">Last 7 Days</SelectItem>
-                        <SelectItem value="all">All Time</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="exportFormat">Export Format</Label>
-                    <Select
-                      value={exportFormat}
-                      onValueChange={(value: "csv" | "json" | "excel") => setExportFormat(value)}
-                    >
-                      <SelectTrigger id="exportFormat">
-                        <SelectValue placeholder="Select format" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="csv">CSV</SelectItem>
-                        <SelectItem value="json">JSON</SelectItem>
-                        <SelectItem value="excel">Excel</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <Button
-                    className="w-full"
-                    onClick={handleDownloadProducts}
-                    disabled={isDownloading || scrapedProducts.length === 0}
-                  >
-                    {isDownloading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Downloading...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="mr-2 h-4 w-4" />
-                        Download {getFilteredProducts().length} Products
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between space-x-2">
-          <div className="flex flex-col space-y-1">
-            <Label htmlFor="autoScraper">Enable Auto-Scraper</Label>
-            <p className="text-xs text-muted-foreground">
-              Check for new products every 3 minutes and extract contact information
-            </p>
-          </div>
-          <Switch
-            id="autoScraper"
-            checked={isEnabled}
-            onCheckedChange={handleToggleAutoScraper}
-            disabled={isInitializing}
-          />
-        </div>
-
-        <div className="border rounded-md p-4">
-          <h3 className="text-sm font-medium mb-3">Initialization Mode</h3>
-          <Tabs
-            defaultValue="week"
-            value={initMode}
-            onValueChange={(value) => setInitMode(value as "today" | "week")}
-            className="w-full"
-          >
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="today" className="flex items-center gap-1">
-                <Calendar className="h-4 w-4" />
-                <span>Today Only</span>
-              </TabsTrigger>
-              <TabsTrigger value="week" className="flex items-center gap-1">
-                <CalendarDays className="h-4 w-4" />
-                <span>Last 7 Days</span>
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="today" className="mt-2">
-              <p className="text-sm text-muted-foreground">
-                Only track products from today. This mode will only initialize with today's products and then check for
-                new ones.
-              </p>
-            </TabsContent>
-            <TabsContent value="week" className="mt-2">
-              <p className="text-sm text-muted-foreground">
-                Track products from the last 7 days. This mode will initialize with a week's worth of products to avoid
-                duplicates.
-              </p>
-            </TabsContent>
-          </Tabs>
-        </div>
-
-        {isInitializing && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">
-                {initMode === "today"
-                  ? "Initializing with today's products only..."
-                  : "Initializing with 7 days of products..."}
-              </span>
-              <span className="text-sm font-medium">{initProgress}%</span>
-            </div>
-            <Progress value={initProgress} className="h-2" />
-          </div>
-        )}
-
-        {status !== "idle" && (
-          <Alert variant={status === "error" ? "destructive" : status === "warning" ? "warning" : "default"}>
-            {status === "error" ? (
-              <AlertCircle className="h-4 w-4" />
-            ) : status === "warning" ? (
-              <AlertCircle className="h-4 w-4" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" />
-            )}
-            <AlertTitle>{status === "error" ? "Error" : status === "warning" ? "Warning" : "Status"}</AlertTitle>
-            <AlertDescription>{statusMessage}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="flex flex-col space-y-2 text-sm">
-          {lastChecked && (
-            <div>
-              <span className="font-medium">Last checked:</span> {lastChecked}
-              {newProductsCount > 0 && (
-                <span className="ml-2 text-primary font-medium">Found {newProductsCount} new products so far</span>
-              )}
-            </div>
-          )}
-
-          {lastSyncTime && (
-            <div>
-              <span className="font-medium">Last storage sync:</span> {lastSyncTime}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="ml-2 h-6 px-2"
-                onClick={handleManualSync}
-                disabled={isSyncing}
+            <div className="border rounded-md p-4">
+              <h3 className="text-sm font-medium mb-3">Initialization Mode</h3>
+              <Tabs
+                defaultValue="week"
+                value={initMode}
+                onValueChange={(value) => setInitMode(value as "today" | "week")}
+                className="w-full"
               >
-                {isSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                <span className="ml-1 text-xs">Sync Now</span>
-              </Button>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="today" className="flex items-center gap-1">
+                    <Calendar className="h-4 w-4" />
+                    <span>Today Only</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="week" className="flex items-center gap-1">
+                    <CalendarDays className="h-4 w-4" />
+                    <span>Last 7 Days</span>
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="today" className="mt-2">
+                  <p className="text-sm text-muted-foreground">
+                    Only track products from today. This mode will only initialize with today's products and then check
+                    for new ones.
+                  </p>
+                </TabsContent>
+                <TabsContent value="week" className="mt-2">
+                  <p className="text-sm text-muted-foreground">
+                    Track products from the last 7 days. This mode will initialize with a week's worth of products to
+                    avoid duplicates.
+                  </p>
+                </TabsContent>
+              </Tabs>
             </div>
-          )}
-        </div>
 
-        <div className="bg-muted/30 p-4 rounded-lg">
-          <h4 className="text-sm font-medium mb-2">What This Does:</h4>
-          <ul className="space-y-1 text-sm">
-            <li className="flex items-start gap-2">
-              <span className="text-primary">•</span>
-              <span>Checks for new products every 3 minutes</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-primary">•</span>
-              <span>Extracts real website links, emails, and Twitter handles</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-primary">•</span>
-              <span>Sends detailed notifications to Discord in real-time</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-primary">•</span>
-              <span>Uses triple API key rotation to handle rate limits</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-primary">•</span>
-              <span>Saves seen products to prevent duplicates even after page refresh</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-primary">•</span>
-              <span>Allows exporting scraped data in multiple formats with date filtering</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-primary">•</span>
-              <span>Supports historical scraping of products from the last 7 days, month, or year</span>
-            </li>
-          </ul>
-        </div>
-        <Dialog open={isTimeRangeDialogOpen} onOpenChange={setIsTimeRangeDialogOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline">Initialize with Time Range</Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Initialize with Time Range</DialogTitle>
-              <DialogDescription>
-                Select the time range to load products from. This will load all products from the selected time range to
-                avoid duplicates.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="time-range">Time Range</Label>
-                <RadioGroup value={selectedTimeRange} onValueChange={setSelectedTimeRange}>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="7" id="r1" />
-                    <Label htmlFor="r1">Last 7 Days</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="30" id="r2" />
-                    <Label htmlFor="r2">Last 30 Days</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="365" id="r3" />
-                    <Label htmlFor="r3">Last 365 Days</Label>
-                  </div>
-                </RadioGroup>
-              </div>
-            </div>
-            {isInitializingTimeRange && (
+            {isInitializing && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Initializing with selected time range...</span>
-                  <span className="text-sm font-medium">{timeRangeProgress}%</span>
+                  <span className="text-sm">
+                    {initMode === "today"
+                      ? "Initializing with today's products only..."
+                      : "Initializing with 7 days of products..."}
+                  </span>
+                  <span className="text-sm font-medium">{initProgress}%</span>
                 </div>
-                <Progress value={timeRangeProgress} className="h-2" />
+                <Progress value={initProgress} className="h-2" />
               </div>
             )}
-            <DialogFooter>
-              <Button type="button" variant="secondary" onClick={() => setIsTimeRangeDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={handleInitializeWithTimeRange} disabled={isInitializingTimeRange}>
-                {isInitializingTimeRange ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Initializing...
-                  </>
+
+            {status !== "idle" && (
+              <Alert variant={status === "error" ? "destructive" : status === "warning" ? "warning" : "default"}>
+                {status === "error" ? (
+                  <AlertCircle className="h-4 w-4" />
+                ) : status === "warning" ? (
+                  <AlertCircle className="h-4 w-4" />
                 ) : (
-                  "Initialize"
+                  <CheckCircle2 className="h-4 w-4" />
                 )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+                <AlertTitle>{status === "error" ? "Error" : status === "warning" ? "Warning" : "Status"}</AlertTitle>
+                <AlertDescription>{statusMessage}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="flex flex-col space-y-2 text-sm">
+              {lastChecked && (
+                <div>
+                  <span className="font-medium">Last checked:</span> {lastChecked}
+                  {newProductsCount > 0 && (
+                    <span className="ml-2 text-primary font-medium">Found {newProductsCount} new products so far</span>
+                  )}
+                </div>
+              )}
+
+              {lastSyncTime && (
+                <div>
+                  <span className="font-medium">Last storage sync:</span> {lastSyncTime}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-2 h-6 px-2"
+                    onClick={handleManualSync}
+                    disabled={isSyncing}
+                  >
+                    {isSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                    <span className="ml-1 text-xs">Sync Now</span>
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-muted/30 p-4 rounded-lg">
+              <h4 className="text-sm font-medium mb-2">What This Does:</h4>
+              <ul className="space-y-1 text-sm">
+                <li className="flex items-start gap-2">
+                  <span className="text-primary">•</span>
+                  <span>Checks for new products every 3 minutes</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary">•</span>
+                  <span>Extracts real website links, emails, and Twitter handles</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary">•</span>
+                  <span>Sends detailed notifications to Discord in real-time</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary">•</span>
+                  <span>Uses triple API key rotation to handle rate limits</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary">•</span>
+                  <span>Saves settings to server for access on all devices</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-primary">•</span>
+                  <span>Allows exporting scraped data in multiple formats with date filtering</span>
+                </li>
+              </ul>
+            </div>
+            <Dialog open={isTimeRangeDialogOpen} onOpenChange={setIsTimeRangeDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline">Initialize with Time Range</Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Initialize with Time Range</DialogTitle>
+                  <DialogDescription>
+                    Select the time range to load products from. This will load all products from the selected time
+                    range to avoid duplicates.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="time-range">Time Range</Label>
+                    <RadioGroup value={selectedTimeRange} onValueChange={setSelectedTimeRange}>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="7" id="r1" />
+                        <Label htmlFor="r1">Last 7 Days</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="30" id="r2" />
+                        <Label htmlFor="r2">Last 30 Days</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="365" id="r3" />
+                        <Label htmlFor="r3">Last 365 Days</Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+                </div>
+                {isInitializingTimeRange && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Initializing with selected time range...</span>
+                      <span className="text-sm font-medium">{timeRangeProgress}%</span>
+                    </div>
+                    <Progress value={timeRangeProgress} className="h-2" />
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button type="button" variant="secondary" onClick={() => setIsTimeRangeDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="button" onClick={handleInitializeWithTimeRange} disabled={isInitializingTimeRange}>
+                    {isInitializingTimeRange ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Initializing...
+                      </>
+                    ) : (
+                      "Initialize"
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </>
+        )}
       </CardContent>
 
       <CardFooter className="flex justify-between">
@@ -1072,23 +1224,18 @@ export function AutoScraperSettings() {
             )}
           </Button>
 
-          <Button
-            variant="outline"
-            onClick={() => {
-              // Force save all settings
-              localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, webhookUrl)
-              localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, isEnabled.toString())
-
-              toast({
-                title: "Settings Saved",
-                description: "Your webhook URL and auto-scraper settings have been saved",
-              })
-
-              console.log("Manually saved all settings to localStorage")
-            }}
-          >
-            <Save className="mr-2 h-4 w-4" />
-            Save Settings
+          <Button variant="outline" onClick={handleSaveAllSettings} disabled={isSavingSettings}>
+            {isSavingSettings ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Cloud className="mr-2 h-4 w-4" />
+                Save to Server
+              </>
+            )}
           </Button>
 
           <Dialog open={isTimeRangeDialogOpen} onOpenChange={setIsTimeRangeDialogOpen}>
