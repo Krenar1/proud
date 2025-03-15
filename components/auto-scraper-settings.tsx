@@ -1,11 +1,10 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
 import {
   initializeAutoScraper,
@@ -16,35 +15,24 @@ import {
 } from "@/actions/auto-scraper"
 import {
   Loader2,
-  AlertCircle,
-  CheckCircle2,
   BellRing,
   KeyRound,
-  Save,
-  Database,
   Download,
+  Sparkles,
+  AlertCircle,
+  CheckCircle2,
+  Cloud,
   Calendar,
   CalendarDays,
-  Cloud,
 } from "lucide-react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import type { Product } from "@/types/product"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { initializeWithTimeRange } from "@/actions/auto-scraper"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Progress } from "@/components/ui/progress"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -85,6 +73,7 @@ export function AutoScraperSettings() {
   const [initMode, setInitMode] = useState<"today" | "week">("week")
   const [isSavingSettings, setIsSavingSettings] = useState(false)
   const [isLoadingSettings, setIsLoadingSettings] = useState(true)
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Load saved settings on component mount
   useEffect(() => {
@@ -322,14 +311,35 @@ export function AutoScraperSettings() {
       // Update the server-side set with the merged IDs
       await loadSeenProductIds(mergedIds)
 
+      // Also sync the auto-scraper enabled state
+      const response = await fetch("/api/settings")
+      if (response.ok) {
+        const serverSettings = await response.json()
+
+        // If server has different enabled state than local, update local
+        if (typeof serverSettings.autoScraperEnabled === "boolean" && serverSettings.autoScraperEnabled !== isEnabled) {
+          setIsEnabled(serverSettings.autoScraperEnabled)
+          localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, serverSettings.autoScraperEnabled ? "true" : "false")
+
+          // If server says enabled but local is disabled, start the scraper
+          if (serverSettings.autoScraperEnabled && !isEnabled && webhookUrl) {
+            startAutoScraper(webhookUrl)
+          }
+          // If server says disabled but local is enabled, stop the scraper
+          else if (!serverSettings.autoScraperEnabled && isEnabled) {
+            stopAutoScraper()
+          }
+        }
+      }
+
       // Update last sync time
       const now = new Date().toLocaleString()
       localStorage.setItem(STORAGE_KEYS.LAST_SYNC_TIME, now)
       setLastSyncTime(now)
 
-      console.log(`Synced ${mergedIds.length} product IDs between server and localStorage`)
+      console.log(`Synced ${mergedIds.length} product IDs and settings between server and localStorage`)
     } catch (error) {
-      console.error("Error syncing product IDs:", error)
+      console.error("Error syncing data:", error)
     } finally {
       setIsSyncing(false)
     }
@@ -386,13 +396,13 @@ export function AutoScraperSettings() {
         }
 
         // Immediately check for new products after initialization
-        console.log("Performing initial check for new products...")
+        console.log("Performing initial check for new products only...")
         checkForProducts(url).catch((error) => {
           console.error("Error in initial check:", error)
         })
 
         // Set up the regular interval with a random offset to avoid synchronized requests
-        const intervalMinutes = 3
+        const intervalMinutes = 2 // Reduced to check more frequently for new products
         const intervalMs = intervalMinutes * 60 * 1000
         const randomOffset = Math.floor(Math.random() * 30000) // Random offset up to 30 seconds
 
@@ -401,7 +411,7 @@ export function AutoScraperSettings() {
         )
 
         intervalRef.current = setInterval(() => {
-          console.log("Running scheduled check for new products...")
+          console.log("Running scheduled check for new products only...")
           checkForProducts(url).catch((error) => {
             console.error("Error in scheduled check:", error)
           })
@@ -409,7 +419,7 @@ export function AutoScraperSettings() {
 
         toast({
           title: "Auto-Scraper Enabled",
-          description: `The scraper will check for new products every ${intervalMinutes} minutes and extract contact information`,
+          description: `The scraper will check for new products every ${intervalMinutes} minutes and immediately process them`,
         })
       } else {
         setStatus("error")
@@ -500,7 +510,8 @@ export function AutoScraperSettings() {
 
           toast({
             title: "New Products Found & Scraped!",
-            description: `Found and immediately scraped ${result.newProducts.length} new products. Contact information extracted and sent to Discord in real-time.`,
+            description: `Found and immediately scraped ${result.newProducts.length} new products with contact information.`,
+            variant: "success",
           })
         } else {
           setStatus("success")
@@ -886,6 +897,116 @@ export function AutoScraperSettings() {
     }
   }
 
+  const handleSimplifiedExport = () => {
+    if (isDownloading) return
+
+    setIsDownloading(true)
+
+    try {
+      const filteredProducts = getFilteredProducts()
+
+      if (!filteredProducts.length) {
+        toast({
+          title: "No Products to Download",
+          description: "There are no products matching your filter criteria",
+          variant: "warning",
+        })
+        setIsDownloading(false)
+        return
+      }
+
+      // Generate filename with date and filter info
+      const dateStr = new Date().toISOString().split("T")[0]
+      let filterStr = ""
+
+      switch (dateFilter) {
+        case "today":
+          filterStr = "today"
+          break
+        case "yesterday":
+          filterStr = "yesterday"
+          break
+        case "last7days":
+          filterStr = "last-7-days"
+          break
+        case "all":
+          filterStr = "all-time"
+          break
+      }
+
+      const filename = `product-hunt-contacts-${filterStr}-${dateStr}`
+
+      // Simplified data with only website, email, and Twitter
+      const simplifiedProducts = filteredProducts.map((product) => ({
+        name: product.name,
+        website: product.website || product.exactWebsiteUrl || "",
+        emails: product.emails || [],
+        twitterHandles: product.twitterHandles || [],
+        url: product.url || "",
+      }))
+
+      // Export based on selected format
+      switch (exportFormat) {
+        case "json":
+          // Convert to JSON
+          const jsonData = JSON.stringify(simplifiedProducts, null, 2)
+          const jsonBlob = new Blob([jsonData], { type: "application/json" })
+          downloadBlob(jsonBlob, `${filename}.json`)
+          break
+
+        case "excel":
+          // For Excel, we'll use CSV with Excel-specific headers
+          const csvContent = convertToSimplifiedCSV(simplifiedProducts)
+          const excelBlob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+          downloadBlob(excelBlob, `${filename}.xlsx`)
+          break
+
+        case "csv":
+        default:
+          // Convert to CSV
+          const csvData = convertToSimplifiedCSV(simplifiedProducts)
+          const csvBlob = new Blob([csvData], { type: "text/csv;charset=utf-8;" })
+          downloadBlob(csvBlob, `${filename}.csv`)
+          break
+      }
+
+      toast({
+        title: "Download Complete",
+        description: `Successfully downloaded ${filteredProducts.length} products with contact information`,
+      })
+
+      // Close the popover after download
+      setIsExportPopoverOpen(false)
+    } catch (error) {
+      console.error("Error downloading products:", error)
+      toast({
+        title: "Download Failed",
+        description: "There was an error downloading the products",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
+  // Add this function before the return statement
+  const convertToSimplifiedCSV = (products: any[]): string => {
+    // Define CSV headers for simplified export
+    const headers = ["name", "website", "emails", "twitter_handles", "product_hunt_url"]
+
+    // Create CSV rows
+    const rows = products.map((product) => [
+      `"${(product.name || "").replace(/"/g, '""')}"`,
+      product.website || "",
+      (product.emails || []).join(", "),
+      (product.twitterHandles || []).join(", "),
+      product.url || "",
+    ])
+
+    // Combine headers and rows
+    return [headers.join(","), ...rows.map((row) => row.join(","))].join("\n")
+  }
+
   return (
     <Card className="w-full">
       <CardHeader>
@@ -904,8 +1025,8 @@ export function AutoScraperSettings() {
                   : "Single API Key"}
             </Badge>
             <Badge variant="outline" className="flex items-center gap-1">
-              <Cloud className="h-3 w-3" />
-              Server-Synced Settings
+              <Sparkles className="h-3 w-3" />
+              New Products Only
             </Badge>
           </div>
         </div>
@@ -933,6 +1054,14 @@ export function AutoScraperSettings() {
                     onChange={(e) => {
                       const newUrl = e.target.value
                       setWebhookUrl(newUrl)
+                      // Auto-save webhook URL as user types (with debounce)
+                      clearTimeout(saveTimeoutRef.current)
+                      saveTimeoutRef.current = setTimeout(() => {
+                        localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, newUrl)
+                        saveSettingsToServer(newUrl, isEnabled, initMode)
+                          .then(() => console.log("Webhook URL auto-saved"))
+                          .catch((err) => console.error("Error auto-saving webhook URL:", err))
+                      }, 1000)
                     }}
                     type="url"
                     className="font-mono text-sm"
@@ -941,13 +1070,60 @@ export function AutoScraperSettings() {
                     Create a webhook in your Discord server settings and paste the URL here
                   </p>
                 </div>
+
+                {/* Add prominent start/stop buttons */}
+                <div className="mt-4 flex flex-col gap-2">
+                  <div className="flex items-center justify-between bg-muted/30 p-3 rounded-lg border border-border">
+                    <div className="flex flex-col">
+                      <span className="font-medium">Auto-Scraper Status</span>
+                      <span className="text-xs text-muted-foreground">
+                        {isEnabled ? "Running - Checking every 2 minutes" : "Stopped"}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => handleToggleAutoScraper(true)}
+                        disabled={isEnabled || isInitializing}
+                      >
+                        <span className="flex items-center gap-1">
+                          {isInitializing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          Start
+                        </span>
+                      </Button>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="bg-red-600 hover:bg-red-700"
+                        onClick={() => handleToggleAutoScraper(false)}
+                        disabled={!isEnabled || isInitializing}
+                      >
+                        Stop
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Cross-device sync</span>
+                    <Badge variant={lastSyncTime ? "outline" : "secondary"} className="text-xs">
+                      {isSyncing
+                        ? "Syncing..."
+                        : lastSyncTime
+                          ? `Last: ${new Date(lastSyncTime).toLocaleTimeString()}`
+                          : "Not synced yet"}
+                    </Badge>
+                  </div>
+                </div>
               </div>
 
-              <div className="flex flex-col justify-end space-y-2 min-w-[200px]">
+              <div className="flex flex-col justify-end space-y-2 min-w-[220px]">
                 <div className="bg-muted/40 p-3 rounded-lg border border-border">
                   <h4 className="text-sm font-medium mb-2 flex items-center justify-between">
                     <span>Scraping Stats</span>
-                    <Badge variant="secondary" className="ml-2">
+                    <Badge variant="secondary" className="ml-2 flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
                       Real-time
                     </Badge>
                   </h4>
@@ -964,6 +1140,12 @@ export function AutoScraperSettings() {
                       <span>New This Session:</span>
                       <span className="font-bold">{newProductsCount}</span>
                     </div>
+                    {lastChecked && (
+                      <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                        <span>Last check:</span>
+                        <span>{lastChecked}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1013,9 +1195,15 @@ export function AutoScraperSettings() {
                         </Select>
                       </div>
 
+                      <div className="bg-muted/30 p-2 rounded-md">
+                        <p className="text-xs text-muted-foreground">
+                          Export will include only website links, emails, and Twitter handles
+                        </p>
+                      </div>
+
                       <Button
                         className="w-full"
-                        onClick={handleDownloadProducts}
+                        onClick={handleSimplifiedExport}
                         disabled={isDownloading || scrapedProducts.length === 0}
                       >
                         {isDownloading ? (
@@ -1033,22 +1221,21 @@ export function AutoScraperSettings() {
                     </div>
                   </PopoverContent>
                 </Popover>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-between space-x-2">
-              <div className="flex flex-col space-y-1">
-                <Label htmlFor="autoScraper">Enable Auto-Scraper</Label>
-                <p className="text-xs text-muted-foreground">
-                  Check for new products every 3 minutes and extract contact information
-                </p>
+                <Button variant="outline" size="sm" onClick={handleManualSync} disabled={isSyncing} className="w-full">
+                  {isSyncing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Syncing...
+                    </>
+                  ) : (
+                    <>
+                      <Cloud className="mr-2 h-4 w-4" />
+                      Sync Across Devices
+                    </>
+                  )}
+                </Button>
               </div>
-              <Switch
-                id="autoScraper"
-                checked={isEnabled}
-                onCheckedChange={handleToggleAutoScraper}
-                disabled={isInitializing}
-              />
             </div>
 
             <div className="border rounded-md p-4">
@@ -1124,236 +1311,38 @@ export function AutoScraperSettings() {
               </Alert>
             )}
 
-            <div className="flex flex-col space-y-2 text-sm">
-              {lastChecked && (
-                <div>
-                  <span className="font-medium">Last checked:</span> {lastChecked}
-                  {newProductsCount > 0 && (
-                    <span className="ml-2 text-primary font-medium">Found {newProductsCount} new products so far</span>
-                  )}
-                </div>
-              )}
-
-              {lastSyncTime && (
-                <div>
-                  <span className="font-medium">Last storage sync:</span> {lastSyncTime}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-2 h-6 px-2"
-                    onClick={handleManualSync}
-                    disabled={isSyncing}
-                  >
-                    {isSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                    <span className="ml-1 text-xs">Sync Now</span>
-                  </Button>
-                </div>
-              )}
-            </div>
-
             <div className="bg-muted/30 p-4 rounded-lg">
               <h4 className="text-sm font-medium mb-2">What This Does:</h4>
               <ul className="space-y-1 text-sm">
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
-                  <span>Checks for new products every 3 minutes</span>
+                  <span>Checks for new products every 2 minutes</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
-                  <span>Extracts real website links, emails, and Twitter handles</span>
+                  <span>Focuses only on new products, ignoring already seen ones</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
-                  <span>Sends detailed notifications to Discord in real-time</span>
+                  <span>Immediately extracts contact information when new products are found</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
-                  <span>Uses triple API key rotation to handle rate limits</span>
+                  <span>Sends notifications to Discord in real-time</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
-                  <span>Saves settings to server for access on all devices</span>
+                  <span>Syncs settings and status across all your devices</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-primary">•</span>
-                  <span>Allows exporting scraped data in multiple formats with date filtering</span>
+                  <span>Exports only essential data: website links, emails, and Twitter handles</span>
                 </li>
               </ul>
             </div>
-            <Dialog open={isTimeRangeDialogOpen} onOpenChange={setIsTimeRangeDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline">Initialize with Time Range</Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
-                  <DialogTitle>Initialize with Time Range</DialogTitle>
-                  <DialogDescription>
-                    Select the time range to load products from. This will load all products from the selected time
-                    range to avoid duplicates.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="time-range">Time Range</Label>
-                    <RadioGroup value={selectedTimeRange} onValueChange={setSelectedTimeRange}>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="7" id="r1" />
-                        <Label htmlFor="r1">Last 7 Days</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="30" id="r2" />
-                        <Label htmlFor="r2">Last 30 Days</Label>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="365" id="r3" />
-                        <Label htmlFor="r3">Last 365 Days</Label>
-                      </div>
-                    </RadioGroup>
-                  </div>
-                </div>
-                {isInitializingTimeRange && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Initializing with selected time range...</span>
-                      <span className="text-sm font-medium">{timeRangeProgress}%</span>
-                    </div>
-                    <Progress value={timeRangeProgress} className="h-2" />
-                  </div>
-                )}
-                <DialogFooter>
-                  <Button type="button" variant="secondary" onClick={() => setIsTimeRangeDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="button" onClick={handleInitializeWithTimeRange} disabled={isInitializingTimeRange}>
-                    {isInitializingTimeRange ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Initializing...
-                      </>
-                    ) : (
-                      "Initialize"
-                    )}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
           </>
         )}
       </CardContent>
-
-      <CardFooter className="flex justify-between">
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleManualCheck} disabled={isChecking || !webhookUrl}>
-            {isChecking ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Checking...
-              </>
-            ) : (
-              "Check Now"
-            )}
-          </Button>
-
-          <Button variant="outline" onClick={handleSaveAllSettings} disabled={isSavingSettings}>
-            {isSavingSettings ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Cloud className="mr-2 h-4 w-4" />
-                Save to Server
-              </>
-            )}
-          </Button>
-
-          <Dialog open={isTimeRangeDialogOpen} onOpenChange={setIsTimeRangeDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">
-                <Database className="mr-2 h-4 w-4" />
-                Historical Scrape
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Historical Product Scraping</DialogTitle>
-                <DialogDescription>
-                  Choose a time range to scrape products from the past. This will initialize the auto-scraper with all
-                  products from that period.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="py-4">
-                <RadioGroup
-                  value={selectedTimeRange}
-                  onValueChange={(value: "7" | "30" | "365") => setSelectedTimeRange(value)}
-                >
-                  <div className="flex items-center space-x-2 mb-2">
-                    <RadioGroupItem value="7" id="r1" />
-                    <Label htmlFor="r1">Last 7 days</Label>
-                  </div>
-                  <div className="flex items-center space-x-2 mb-2">
-                    <RadioGroupItem value="30" id="r2" />
-                    <Label htmlFor="r2">Last 30 days (1 month)</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="365" id="r3" />
-                    <Label htmlFor="r3">Last 365 days (1 year)</Label>
-                  </div>
-                </RadioGroup>
-
-                {isInitializingTimeRange && (
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Loading products...</span>
-                      <span className="text-sm font-medium">{Math.round(timeRangeProgress)}%</span>
-                    </div>
-                    <Progress value={timeRangeProgress} className="h-2" />
-                  </div>
-                )}
-              </div>
-
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsTimeRangeDialogOpen(false)}
-                  disabled={isInitializingTimeRange}
-                >
-                  Cancel
-                </Button>
-                <Button onClick={handleInitializeWithTimeRange} disabled={isInitializingTimeRange}>
-                  {isInitializingTimeRange ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Initializing...
-                    </>
-                  ) : (
-                    "Start Historical Scrape"
-                  )}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
-
-        <Button
-          variant={isEnabled ? "destructive" : "default"}
-          onClick={() => handleToggleAutoScraper(!isEnabled)}
-          disabled={isInitializing}
-        >
-          {isInitializing ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Initializing...
-            </>
-          ) : isEnabled ? (
-            "Stop Auto-Scraper"
-          ) : (
-            "Start Auto-Scraper"
-          )}
-        </Button>
-      </CardFooter>
     </Card>
   )
 }
