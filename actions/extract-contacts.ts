@@ -10,22 +10,74 @@ const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0",
 ]
 
+// Add this list of domains to bypass near the top of the file, after the USER_AGENTS array:
+
+const BYPASS_DOMAINS = [
+  "facebook.com",
+  "fb.com",
+  "apple.com",
+  "google.com",
+  "microsoft.com",
+  "amazon.com",
+  "twitter.com",
+  "x.com",
+  "instagram.com",
+  "linkedin.com",
+  "youtube.com",
+  "github.com",
+  "netflix.com",
+  "spotify.com",
+  "adobe.com",
+  "salesforce.com",
+  "oracle.com",
+  "ibm.com",
+  "intel.com",
+  "cisco.com",
+  "samsung.com",
+  "meta.com",
+  "alphabet.com",
+  "openai.com",
+  "anthropic.com",
+  "gemini.com",
+  "bard.google.com",
+]
+
 // Get a random user agent
 function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
 }
 
-// Improved email extraction regex to be more accurate and strict
+// Add this helper function after the BYPASS_DOMAINS array:
+
+function shouldBypassDomain(url: string): boolean {
+  try {
+    const urlObj = new URL(url)
+    const domain = urlObj.hostname.toLowerCase()
+    return BYPASS_DOMAINS.some((bypassDomain) => domain === bypassDomain || domain.endsWith(`.${bypassDomain}`))
+  } catch (error) {
+    console.error(`Error parsing URL ${url}:`, error)
+    return false
+  }
+}
+
+// Replace the extractEmails function with this more aggressive version
 function extractEmails(text: string): string[] {
-  // More strict email regex that follows RFC 5322 more closely
+  // More aggressive email regex that catches more patterns while still being RFC compliant
   const emailPattern =
     /(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/gi
 
-  // Extract all potential emails
-  const emails = text.match(emailPattern) || []
+  // Also try a simpler pattern to catch more emails that might be missed
+  const simpleEmailPattern = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
+
+  // Extract all potential emails using both patterns
+  const strictEmails = text.match(emailPattern) || []
+  const simpleEmails = text.match(simpleEmailPattern) || []
+
+  // Combine and deduplicate
+  const allEmails = [...new Set([...strictEmails, ...simpleEmails])]
 
   // Filter out common false positives and add more patterns to exclude
-  return emails.filter((email) => {
+  return allEmails.filter((email) => {
     // Convert to lowercase for comparison
     const lowerEmail = email.toLowerCase()
 
@@ -53,8 +105,48 @@ function extractEmails(text: string): string[] {
       "gmail.example",
       "example.org",
       "example.net",
+      "localhost",
+      "test.local",
+      "demo.com",
+      "placeholder.com",
+      "yoursite.com",
+      "site.com",
+      "user.com",
+      "username.com",
+      "mydomain.com",
+      "mysite.com",
+      "mycompany.com",
+      "myemail.com",
+      "emailaddress.com",
+      "mailaddress.com",
+      "mailbox.com",
+      "mailme.com",
+      "emailme.com",
+      "contactme.com",
+      "contactus.com",
+      "info.example",
+      "support.example",
+      "contact.example",
+      "hello.example",
+      "admin.example",
+      "webmaster.example",
+      "postmaster.example",
+      "hostmaster.example",
+      "sales.example",
+      "marketing.example",
+      "billing.example",
+      "help.example",
+      "service.example",
+      "feedback.example",
+      "enquiry.example",
+      "inquiry.example",
+      "noreply.example",
+      "no-reply.example",
+      "donotreply.example",
+      "do-not-reply.example",
     ]
 
+    // Check if the domain is in our blacklist
     if (invalidDomains.some((domain) => domainPart.includes(domain))) {
       return false
     }
@@ -79,24 +171,539 @@ function extractEmails(text: string): string[] {
       "noreply",
       "no-reply",
       "donotreply",
+      "do-not-reply",
+      "webmaster",
+      "postmaster",
+      "hostmaster",
+      "sales",
+      "marketing",
+      "billing",
+      "help",
+      "service",
+      "feedback",
+      "enquiry",
+      "inquiry",
+      "info",
+      "support",
+      "contact",
+      "admin",
+      "webmaster",
+      "postmaster",
+      "hostmaster",
+      "sales",
+      "marketing",
+      "billing",
+      "help",
+      "service",
+      "feedback",
+      "enquiry",
+      "inquiry",
     ]
 
+    // Check if the username is in our blacklist
     if (invalidUsernames.some((name) => userPart === name)) {
       return false
     }
 
     // Check for emails that are likely real
-    const likelyRealDomains = [".com", ".org", ".net", ".io", ".co", ".us", ".uk", ".ca", ".au", ".de", ".fr"]
+    const likelyRealDomains = [
+      ".com",
+      ".org",
+      ".net",
+      ".io",
+      ".co",
+      ".us",
+      ".uk",
+      ".ca",
+      ".au",
+      ".de",
+      ".fr",
+      ".es",
+      ".it",
+      ".nl",
+      ".ru",
+      ".jp",
+      ".cn",
+      ".in",
+      ".br",
+      ".mx",
+      ".se",
+      ".no",
+      ".dk",
+      ".fi",
+      ".pl",
+      ".ch",
+      ".at",
+      ".be",
+      ".ie",
+      ".nz",
+    ]
     const hasLikelyRealDomain = likelyRealDomains.some((domain) => domainPart.endsWith(domain))
 
     // Additional validation for common email patterns
     const isCommonEmailPattern = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email)
 
-    return isCommonEmailPattern && hasLikelyRealDomain
+    // Ensure email doesn't contain suspicious characters
+    const hasSuspiciousChars = /[<>{}()[\]\\/]/.test(email)
+
+    // For real domains, be more lenient with validation
+    if (hasLikelyRealDomain) {
+      return !hasSuspiciousChars
+    }
+
+    // For other domains, be more strict
+    return isCommonEmailPattern && !hasSuspiciousChars
   })
 }
 
-// Enhanced social media extraction to find multiple platforms with strict validation
+// Add this function to extract emails from URL parameters
+function extractEmailsFromUrlParameters(url: string): string[] {
+  const emails: string[] = []
+
+  try {
+    const urlObj = new URL(url)
+
+    // Check all URL parameters for emails
+    urlObj.searchParams.forEach((value, key) => {
+      if (
+        (key.includes("email") || key.includes("contact") || key.includes("mail")) &&
+        value.includes("@") &&
+        value.includes(".")
+      ) {
+        const extractedEmails = extractEmails(value)
+        emails.push(...extractedEmails)
+      } else if (value.includes("@") && value.includes(".")) {
+        // Check all parameter values for potential emails
+        const extractedEmails = extractEmails(value)
+        emails.push(...extractedEmails)
+      }
+    })
+
+    // Check URL path for emails (some sites encode emails in the path)
+    const path = urlObj.pathname
+    if (path.includes("@") && path.includes(".")) {
+      const extractedEmails = extractEmails(decodeURIComponent(path))
+      emails.push(...extractedEmails)
+    }
+  } catch (error) {
+    console.error("Error extracting emails from URL parameters:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Add this function to extract emails from inline CSS and style attributes
+function extractEmailsFromStyles($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Check inline style attributes
+    $("[style]").each((_, element) => {
+      const style = $(element).attr("style") || ""
+
+      // Some sites hide emails in CSS content properties
+      if (style.includes("content") && (style.includes("@") || style.includes("\\0040"))) {
+        // Try to decode CSS escape sequences
+        const decoded = style
+          .replace(/\\0040/g, "@")
+          .replace(/\\002e/g, ".")
+          .replace(/\\002f/g, "/")
+
+        const extractedEmails = extractEmails(decoded)
+        emails.push(...extractedEmails)
+      }
+    })
+
+    // Check style tags
+    $("style").each((_, element) => {
+      const css = $(element).html() || ""
+
+      // Look for content properties with email addresses
+      if (css.includes("content") && (css.includes("@") || css.includes("\\0040"))) {
+        // Try to decode CSS escape sequences
+        const decoded = css
+          .replace(/\\0040/g, "@")
+          .replace(/\\002e/g, ".")
+          .replace(/\\002f/g, "/")
+
+        const extractedEmails = extractEmails(decoded)
+        emails.push(...extractedEmails)
+      }
+    })
+  } catch (error) {
+    console.error("Error extracting emails from styles:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Add this function to extract emails from data attributes
+function extractEmailsFromDataAttributes($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Look for all elements with data attributes
+    $("*").each((_, element) => {
+      const attribs = $(element).attr() || {}
+
+      // Check all data attributes
+      Object.keys(attribs).forEach((attr) => {
+        if (attr.startsWith("data-") && typeof attribs[attr] === "string") {
+          const value = attribs[attr]
+
+          if (value.includes("@") && value.includes(".")) {
+            const extractedEmails = extractEmails(value)
+            emails.push(...extractedEmails)
+          }
+
+          // Check for encoded emails
+          if (attr.includes("email") || attr.includes("contact") || attr.includes("mail")) {
+            try {
+              // Try to decode as base64
+              const decoded = Buffer.from(value, "base64").toString("utf-8")
+              if (decoded.includes("@") && decoded.includes(".")) {
+                const extractedEmails = extractEmails(decoded)
+                emails.push(...extractedEmails)
+              }
+            } catch (e) {
+              // Not base64, continue
+            }
+
+            // Try to decode URL encoded values
+            try {
+              const decoded = decodeURIComponent(value)
+              if (decoded.includes("@") && decoded.includes(".")) {
+                const extractedEmails = extractEmails(decoded)
+                emails.push(...extractedEmails)
+              }
+            } catch (e) {
+              // Not URL encoded, continue
+            }
+          }
+        }
+      })
+    })
+  } catch (error) {
+    console.error("Error extracting emails from data attributes:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Add this new function to scan for emails in comments and hidden elements
+function extractEmailsFromHiddenContent($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Look for HTML comments
+    const html = $.html()
+    const commentRegex = /<!--([\s\S]*?)-->/g
+    let match
+
+    while ((match = commentRegex.exec(html)) !== null) {
+      if (match[1] && (match[1].includes("@") || match[1].includes(" at "))) {
+        const extractedEmails = extractEmails(match[1])
+        emails.push(...extractedEmails)
+      }
+    }
+
+    // Look for hidden elements that might contain emails
+    $(
+      '[style*="display:none"], [style*="display: none"], [style*="visibility:hidden"], [style*="visibility: hidden"], [hidden], .hidden',
+    ).each((_, element) => {
+      const text = $(element).text()
+      if (text.includes("@") || text.includes(" at ")) {
+        const extractedEmails = extractEmails(text)
+        emails.push(...extractedEmails)
+      }
+    })
+
+    // Look for noscript tags
+    $("noscript").each((_, element) => {
+      const content = $(element).html() || ""
+      if (content.includes("@") || content.includes(" at ")) {
+        const extractedEmails = extractEmails(content)
+        emails.push(...extractedEmails)
+      }
+    })
+  } catch (error) {
+    console.error("Error extracting emails from hidden content:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Add this function to extract emails from meta tags
+function extractEmailsFromMetaTags($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Check meta tags for emails
+    $("meta").each((_, element) => {
+      const content = $(element).attr("content") || ""
+      if (content.includes("@") && content.includes(".")) {
+        const extractedEmails = extractEmails(content)
+        emails.push(...extractedEmails)
+      }
+    })
+
+    // Check OpenGraph and other structured data
+    $('meta[property^="og:"], meta[name^="twitter:"], meta[itemprop]').each((_, element) => {
+      const content = $(element).attr("content") || ""
+      if (content.includes("@") && content.includes(".")) {
+        const extractedEmails = extractEmails(content)
+        emails.push(...extractedEmails)
+      }
+    })
+  } catch (error) {
+    console.error("Error extracting emails from meta tags:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Add this function to extract emails from JSON-LD and structured data
+function extractEmailsFromStructuredData($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Look for JSON-LD scripts
+    $('script[type="application/ld+json"]').each((_, element) => {
+      const content = $(element).html() || ""
+
+      try {
+        // Try to parse as JSON
+        const data = JSON.parse(content)
+
+        // Convert to string to search for emails
+        const jsonString = JSON.stringify(data)
+
+        // Extract emails from the JSON string
+        if (jsonString.includes("@") && jsonString.includes(".")) {
+          const extractedEmails = extractEmails(jsonString)
+          emails.push(...extractedEmails)
+        }
+
+        // Specifically look for email properties in structured data
+        const findEmailsInObject = (obj: any) => {
+          if (!obj || typeof obj !== "object") return
+
+          // Check for common email properties
+          const emailProps = ["email", "emailAddress", "contactPoint", "contactEmail", "authorEmail"]
+
+          for (const key in obj) {
+            // Check if this property might contain an email
+            if (emailProps.includes(key.toLowerCase()) && typeof obj[key] === "string") {
+              if (obj[key].includes("@") && obj[key].includes(".")) {
+                const extractedEmails = extractEmails(obj[key])
+                emails.push(...extractedEmails)
+              }
+            }
+
+            // Recursively check nested objects and arrays
+            if (typeof obj[key] === "object" && obj[key] !== null) {
+              findEmailsInObject(obj[key])
+            }
+          }
+        }
+
+        findEmailsInObject(data)
+      } catch (e) {
+        // If JSON parsing fails, try regex extraction
+        if (content.includes("@") && content.includes(".")) {
+          const extractedEmails = extractEmails(content)
+          emails.push(...extractedEmails)
+        }
+      }
+    })
+  } catch (error) {
+    console.error("Error extracting emails from structured data:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Add this new function to extract emails from obfuscated content
+function extractObfuscatedEmails($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Look for common email obfuscation patterns
+
+    // 1. Look for elements with data-email attributes
+    $("[data-email]").each((_, element) => {
+      const encodedEmail = $(element).attr("data-email")
+      if (encodedEmail) {
+        try {
+          // Some sites use base64 encoding
+          const decodedEmail = Buffer.from(encodedEmail, "base64").toString("utf-8")
+          if (decodedEmail.includes("@") && decodedEmail.includes(".")) {
+            emails.push(decodedEmail)
+          }
+        } catch (e) {
+          // If not base64, just use as is
+          if (encodedEmail.includes("@") && encodedEmail.includes(".")) {
+            emails.push(encodedEmail)
+          }
+        }
+      }
+    })
+
+    // 2. Look for JavaScript email obfuscation
+    $("script").each((_, element) => {
+      const scriptContent = $(element).html() || ""
+
+      // Look for common patterns like "x@y.z".replace(/x/, "email")
+      const emailRegex = /"([^"@]+@[^"]+\.[^"]+)"/g
+      let match
+      while ((match = emailRegex.exec(scriptContent)) !== null) {
+        if (match[1] && match[1].includes("@") && match[1].includes(".")) {
+          emails.push(match[1])
+        }
+      }
+
+      // Look for email parts being concatenated
+      const concatRegex = /['"]([^'"]+@[^'"]+|[^'"]+\.[^'"]{2,})['"][\s]*\+[\s]*['"]/g
+      while ((match = concatRegex.exec(scriptContent)) !== null) {
+        if (match[1]) {
+          // This is just a part, but we'll check surrounding content
+          const context = scriptContent.substring(Math.max(0, match.index - 50), match.index + match[0].length + 50)
+          const extractedEmails = extractEmails(context)
+          emails.push(...extractedEmails)
+        }
+      }
+    })
+
+    // 3. Look for HTML entities encoded emails
+    $("body")
+      .find("*")
+      .each((_, element) => {
+        const html = $(element).html() || ""
+        if (html.includes("&#") && (html.includes("@") || html.includes("&#64;"))) {
+          try {
+            // Decode HTML entities
+            const decoded = html.replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+            const extractedEmails = extractEmails(decoded)
+            emails.push(...extractedEmails)
+          } catch (e) {
+            // Continue if decoding fails
+          }
+        }
+      })
+
+    // 4. Look for emails with [at] and [dot] instead of @ and .
+    $("body")
+      .find("*")
+      .each((_, element) => {
+        const text = $(element).text()
+        if (
+          (text.includes("[at]") || text.includes("(at)") || text.includes(" at ")) &&
+          (text.includes("[dot]") || text.includes("(dot)") || text.includes(" dot "))
+        ) {
+          // Replace common obfuscation patterns and check for emails
+          const deobfuscated = text
+            .replace(/\[at\]/gi, "@")
+            .replace(/$$at$$/gi, "@")
+            .replace(/\s+at\s+/gi, "@")
+            .replace(/\[dot\]/gi, ".")
+            .replace(/$$dot$$/gi, ".")
+            .replace(/\s+dot\s+/gi, ".")
+
+          const extractedEmails = extractEmails(deobfuscated)
+          emails.push(...extractedEmails)
+        }
+      })
+  } catch (error) {
+    console.error("Error extracting obfuscated emails:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Add this function to extract emails from image alt text and aria labels
+function extractEmailsFromAccessibilityAttributes($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Check alt text on images
+    $("img[alt]").each((_, element) => {
+      const altText = $(element).attr("alt") || ""
+      if (altText.includes("@") && altText.includes(".")) {
+        const extractedEmails = extractEmails(altText)
+        emails.push(...extractedEmails)
+      }
+    })
+
+    // Check aria-label attributes
+    $("[aria-label]").each((_, element) => {
+      const ariaLabel = $(element).attr("aria-label") || ""
+      if (ariaLabel.includes("@") && ariaLabel.includes(".")) {
+        const extractedEmails = extractEmails(ariaLabel)
+        emails.push(...extractedEmails)
+      }
+    })
+
+    // Check title attributes
+    $("[title]").each((_, element) => {
+      const title = $(element).attr("title") || ""
+      if (title.includes("@") && title.includes(".")) {
+        const extractedEmails = extractEmails(title)
+        emails.push(...extractedEmails)
+      }
+    })
+  } catch (error) {
+    console.error("Error extracting emails from accessibility attributes:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Add this function to look for contact forms that might contain email hints
+function extractEmailsFromContactForms($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Look for forms with contact or email in their attributes
+    $(
+      'form[action*="contact"], form[action*="email"], form[id*="contact"], form[class*="contact"], form[id*="email"], form[class*="email"]',
+    ).each((_, form) => {
+      // Check for hidden fields that might contain emails
+      $(form)
+        .find('input[type="hidden"]')
+        .each((_, input) => {
+          const value = $(input).attr("value") || ""
+          if (value.includes("@") && value.includes(".")) {
+            const extractedEmails = extractEmails(value)
+            emails.push(...extractedEmails)
+          }
+        })
+
+      // Check for default values in visible fields
+      $(form)
+        .find('input[type="text"], input[type="email"]')
+        .each((_, input) => {
+          const value = $(input).attr("value") || ""
+          const placeholder = $(input).attr("placeholder") || ""
+
+          if (value.includes("@") && value.includes(".")) {
+            const extractedEmails = extractEmails(value)
+            emails.push(...extractedEmails)
+          }
+
+          if (placeholder.includes("@") && placeholder.includes(".")) {
+            const extractedEmails = extractEmails(placeholder)
+            emails.push(...extractedEmails)
+          }
+        })
+    })
+  } catch (error) {
+    console.error("Error extracting emails from contact forms:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Enhance social media extraction to find Twitter handles more accurately
 function extractSocialMedia($: cheerio.CheerioAPI): {
   twitter: string[]
   facebook: string[]
@@ -111,6 +718,26 @@ function extractSocialMedia($: cheerio.CheerioAPI): {
   }
 
   try {
+    // First, look specifically for Twitter handles in text content
+    $("body")
+      .find("*")
+      .each((_, element) => {
+        try {
+          const text = $(element).text()
+
+          // Look for Twitter handles in text (starting with @ followed by alphanumeric chars)
+          const twitterHandleRegex = /(?:^|\s)(@[A-Za-z0-9_]{1,15})(?:\s|$)/g
+          let match
+          while ((match = twitterHandleRegex.exec(text)) !== null) {
+            if (match[1] && match[1].length > 1) {
+              socialMedia.twitter.push(match[1])
+            }
+          }
+        } catch (error) {
+          // Skip this element and continue
+        }
+      })
+
     // Look for social media links with comprehensive selectors
     $(
       "a[href*='twitter.com'], a[href*='x.com'], a[href*='t.co'], a[href*='facebook.com'], a[href*='fb.com'], a[href*='instagram.com'], a[href*='linkedin.com'], [class*='social'], [id*='social'], footer a, .footer a",
@@ -152,6 +779,22 @@ function extractSocialMedia($: cheerio.CheerioAPI): {
                   "notifications",
                   "messages",
                   "settings",
+                  "i",
+                  "status",
+                  "statuses",
+                  "tweet",
+                  "retweet",
+                  "like",
+                  "reply",
+                  "follow",
+                  "unfollow",
+                  "block",
+                  "mute",
+                  "report",
+                  "lists",
+                  "moments",
+                  "topics",
+                  "bookmarks",
                 ].includes(handle.toLowerCase())
               ) {
                 return
@@ -165,7 +808,8 @@ function extractSocialMedia($: cheerio.CheerioAPI): {
                 handle = `@${handle}`
               }
 
-              if (handle && handle.length > 1) {
+              if (handle && handle.length > 1 && handle.length <= 16) {
+                // Twitter handles are max 15 chars + @
                 socialMedia.twitter.push(handle)
               }
             }
@@ -175,7 +819,10 @@ function extractSocialMedia($: cheerio.CheerioAPI): {
             const match = href.match(twitterHandleRegex)
             if (match && match[1]) {
               handle = `@${match[1]}`
-              socialMedia.twitter.push(handle)
+              if (handle.length <= 16) {
+                // Twitter handles are max 15 chars + @
+                socialMedia.twitter.push(handle)
+              }
             }
           }
         }
@@ -488,7 +1135,7 @@ async function resolveProductHuntRedirect(url: string): Promise<string | null> {
   }
 }
 
-// Find canonical URL to get the exact website URL
+// Enhance the findCanonicalUrl function to get the exact website URL
 async function findCanonicalUrl(url: string): Promise<string> {
   try {
     console.log(`Finding canonical URL for: ${url}`)
@@ -514,7 +1161,7 @@ async function findCanonicalUrl(url: string): Promise<string> {
       return url // Return original URL if we can't fetch
     }
 
-    // Get the final URL after redirects
+    // Get the final URL after redirects - this is the real URL
     const finalUrl = response.url
 
     // Get the HTML to check for canonical link
@@ -1022,7 +1669,140 @@ export async function processBatches(products: Product[], batchSize = 5): Promis
   })
 }
 
-// Enhance the scrapeWebsite function to check more locations and be more thorough
+// Add this function to extract emails from image URLs
+function extractEmailsFromImageUrls($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Some sites put email addresses in image URLs (e.g., for tracking or as a CAPTCHA prevention)
+    $("img").each((_, element) => {
+      const src = $(element).attr("src") || ""
+
+      if (src.includes("@") && src.includes(".")) {
+        // Try to extract emails from the URL
+        try {
+          const decoded = decodeURIComponent(src)
+          const extractedEmails = extractEmails(decoded)
+          emails.push(...extractedEmails)
+        } catch (e) {
+          // If decoding fails, try with the original
+          const extractedEmails = extractEmails(src)
+          emails.push(...extractedEmails)
+        }
+      }
+    })
+  } catch (error) {
+    console.error("Error extracting emails from image URLs:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Add this function to extract emails from JavaScript event handlers
+function extractEmailsFromEventHandlers($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Check for inline event handlers that might contain emails
+    const eventAttributes = [
+      "onclick",
+      "onmouseover",
+      "onmouseout",
+      "onload",
+      "onchange",
+      "onfocus",
+      "onblur",
+      "onsubmit",
+      "onreset",
+      "onselect",
+    ]
+
+    eventAttributes.forEach((attr) => {
+      $(`[${attr}]`).each((_, element) => {
+        const handler = $(element).attr(attr) || ""
+
+        if (handler.includes("@") || handler.includes("mail") || handler.includes("contact")) {
+          // Extract potential emails from the handler
+          const extractedEmails = extractEmails(handler)
+          emails.push(...extractedEmails)
+
+          // Look for common patterns like "mailto:" or "email="
+          if (handler.includes("mailto:") || handler.includes("email=")) {
+            const mailtoRegex = /mailto:([^'")\s]+)/i
+            const emailParamRegex = /email=([^&'")\s]+)/i
+
+            const mailtoMatch = handler.match(mailtoRegex)
+            if (mailtoMatch && mailtoMatch[1]) {
+              try {
+                const decoded = decodeURIComponent(mailtoMatch[1])
+                if (decoded.includes("@") && decoded.includes(".")) {
+                  emails.push(decoded)
+                }
+              } catch (e) {
+                // If decoding fails, use as is
+                if (mailtoMatch[1].includes("@") && mailtoMatch[1].includes(".")) {
+                  emails.push(mailtoMatch[1])
+                }
+              }
+            }
+
+            const emailParamMatch = handler.match(emailParamRegex)
+            if (emailParamMatch && emailParamMatch[1]) {
+              try {
+                const decoded = decodeURIComponent(emailParamMatch[1])
+                if (decoded.includes("@") && decoded.includes(".")) {
+                  emails.push(decoded)
+                }
+              } catch (e) {
+                // If decoding fails, use as is
+                if (emailParamMatch[1].includes("@") && emailParamMatch[1].includes(".")) {
+                  emails.push(emailParamMatch[1])
+                }
+              }
+            }
+          }
+        }
+      })
+    })
+  } catch (error) {
+    console.error("Error extracting emails from event handlers:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Add this function to extract emails from SVG content
+function extractEmailsFromSvg($: cheerio.CheerioAPI): string[] {
+  const emails: string[] = []
+
+  try {
+    // Check SVG elements and their attributes
+    $("svg, svg *").each((_, element) => {
+      // Check text content in SVG
+      const text = $(element).text()
+      if (text.includes("@") && text.includes(".")) {
+        const extractedEmails = extractEmails(text)
+        emails.push(...extractedEmails)
+      }
+
+      // Check SVG-specific attributes that might contain text
+      const textAttrs = ["text", "tspan", "textPath"]
+      if (textAttrs.includes(element.name)) {
+        const content = $(element).html() || ""
+        if (content.includes("@") && content.includes(".")) {
+          const extractedEmails = extractEmails(content)
+          emails.push(...extractedEmails)
+        }
+      }
+    })
+  } catch (error) {
+    console.error("Error extracting emails from SVG content:", error)
+  }
+
+  return [...new Set(emails)]
+}
+
+// Enhance the scrapeWebsite function to extract exact URLs and better email/Twitter data
 export async function scrapeWebsite(url: string): Promise<{
   emails: string[]
   socialMedia: {
@@ -1068,16 +1848,30 @@ export async function scrapeWebsite(url: string): Promise<{
     return emptyResult
   }
 
-  // Skip if it's a Product Hunt URL (we should have resolved these earlier)
-  if (url.includes("producthunt.com")) {
-    console.log(`Skipping Product Hunt URL: ${url}`)
-    return emptyResult
+  // After the URL validation checks but before the main try/catch block, add:
+
+  // Check if this is a major tech company domain we should bypass
+  if (shouldBypassDomain(url)) {
+    console.log(`Bypassing scraping for major tech domain: ${url}`)
+    return {
+      emails: [],
+      socialMedia: {
+        twitter: [],
+        facebook: [],
+        instagram: [],
+        linkedin: [],
+      },
+      contactUrl: null,
+      aboutUrl: null,
+      exactWebsiteUrl: url,
+      externalLinks: [],
+    }
   }
 
   try {
-    // First, try to get the canonical URL
+    // First, try to get the canonical URL - this is the exact website URL
     const exactWebsiteUrl = await findCanonicalUrl(url)
-    console.log(`Canonical URL: ${exactWebsiteUrl}`)
+    console.log(`Canonical/Exact URL: ${exactWebsiteUrl}`)
 
     console.log(`Checking main page: ${url}`)
 
@@ -1135,12 +1929,54 @@ export async function scrapeWebsite(url: string): Promise<{
         externalLinks: string[]
       }>(async (resolve) => {
         try {
+          const $ = cheerio.load(html)
+          const socialMedia = extractSocialMedia($)
+          const footerResults = extractFromFooter($)
+          const contactPageResults = await checkContactPage(url, $)
+          const aboutPageResults = await checkAboutPage(url, $)
+
+          // Extract all external links
+          const externalLinks: string[] = []
+          $("a[href]").each((_, element) => {
+            const href = $(element).attr("href") || ""
+            if (href.startsWith("http") && !href.includes(new URL(url).hostname)) {
+              externalLinks.push(href)
+            }
+          })
+
+          // Update the scrapeWebsite function to use these new email extraction methods
+          // Find the parsePromise section in scrapeWebsite and update the email extraction part:
+
+          // Inside the parsePromise function in scrapeWebsite, replace the email extraction code with:
           // Extract emails directly from HTML
           const emails = extractEmails(html)
 
-          // Use cheerio for parsing
-          const $ = cheerio.load(html)
-          const socialMedia = extractSocialMedia($)
+          // Extract obfuscated emails
+          const obfuscatedEmails = extractObfuscatedEmails($)
+
+          // Extract emails from accessibility attributes
+          const accessibilityEmails = extractEmailsFromAccessibilityAttributes($)
+
+          // Extract emails from contact forms
+          const contactFormEmails = extractEmailsFromContactForms($)
+
+          // Extract emails from hidden content
+          const hiddenContentEmails = extractEmailsFromHiddenContent($)
+
+          // Extract emails from meta tags
+          const metaTagEmails = extractEmailsFromMetaTags($)
+
+          // Extract emails from structured data
+          const structuredDataEmails = extractEmailsFromStructuredData($)
+
+          // Extract emails from URL parameters
+          const urlParameterEmails = extractEmailsFromUrlParameters(url)
+
+          // Extract emails from styles
+          const styleEmails = extractEmailsFromStyles($)
+
+          // Extract emails from data attributes
+          const dataAttributeEmails = extractEmailsFromDataAttributes($)
 
           // Look for emails in specific elements that often contain contact info
           const contactElements = [
@@ -1155,6 +1991,18 @@ export async function scrapeWebsite(url: string): Promise<{
             '[class*="email"]',
             '[id*="contact"]',
             '[id*="email"]',
+            // Add more specific selectors
+            ".vcard",
+            ".hcard",
+            ".author",
+            ".byline",
+            ".signature",
+            ".bio",
+            ".profile",
+            ".about-author",
+            ".team-member",
+            ".staff",
+            ".employee",
           ]
 
           let elementEmails: string[] = []
@@ -1180,69 +2028,33 @@ export async function scrapeWebsite(url: string): Promise<{
             }
           })
 
-          // Extract from footer
-          let footerResults = {
-            emails: [],
-            socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
-          }
-          try {
-            footerResults = extractFromFooter($)
-          } catch (footerError) {
-            console.error(`Error extracting from footer for ${url}:`, footerError)
-            // Continue with empty footer results
-          }
+          // Extract emails from image URLs
+          const imageUrlEmails = extractEmailsFromImageUrls($)
 
-          // Check contact page
-          let contactPageResults = {
-            emails: [],
-            socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
-            contactUrl: null,
-          }
-          try {
-            contactPageResults = await checkContactPage(url, $)
-          } catch (contactPageError) {
-            console.error(`Error checking contact page for ${url}:`, contactPageError)
-            // Continue with empty contact page results
-          }
+          // Extract emails from event handlers
+          const eventHandlerEmails = extractEmailsFromEventHandlers($)
 
-          // Also check about page, which often contains contact info
-          let aboutPageResults = {
-            emails: [],
-            socialMedia: { twitter: [], facebook: [], instagram: [], linkedin: [] },
-            aboutUrl: null,
-          }
-          try {
-            aboutPageResults = await checkAboutPage(url, $)
-          } catch (aboutPageError) {
-            console.error(`Error checking about page for ${url}:`, aboutPageError)
-            // Continue with empty about page results
-          }
+          // Extract emails from SVG content
+          const svgEmails = extractEmailsFromSvg($)
 
-          // Extract external links (limited to 10)
-          const externalLinks: string[] = []
-          try {
-            $("a[href^='http']").each((_, element) => {
-              if (externalLinks.length >= 10) return false // Limit to 10 links
-
-              const href = $(element).attr("href") || ""
-              if (
-                href &&
-                !href.includes(new URL(url).hostname) &&
-                !href.includes("producthunt.com") &&
-                isValidUrl(href)
-              ) {
-                externalLinks.push(href)
-              }
-            })
-          } catch (linksError) {
-            console.error(`Error extracting external links for ${url}:`, linksError)
-          }
-
+          // Then, when combining all results, update to include the new sources:
           // Combine all results, removing duplicates
           resolve({
             emails: [
               ...new Set([
                 ...emails,
+                ...obfuscatedEmails,
+                ...accessibilityEmails,
+                ...contactFormEmails,
+                ...hiddenContentEmails,
+                ...metaTagEmails,
+                ...structuredDataEmails,
+                ...urlParameterEmails,
+                ...styleEmails,
+                ...dataAttributeEmails,
+                ...imageUrlEmails,
+                ...eventHandlerEmails,
+                ...svgEmails,
                 ...elementEmails,
                 ...footerResults.emails,
                 ...contactPageResults.emails,
@@ -1444,6 +2256,7 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
           allUpdatedProducts[index] = {
             ...allUpdatedProducts[index], // Keep existing properties
             website: contactInfo.exactWebsiteUrl || website, // Use the exact website URL we found
+            exactWebsiteUrl: contactInfo.exactWebsiteUrl || website, // Store the exact URL separately
             emails: contactInfo.emails || [],
             twitterHandles: contactInfo.socialMedia.twitter || [],
             facebookLinks: contactInfo.socialMedia.facebook || [],

@@ -25,6 +25,7 @@ export interface Product {
   contactLinks?: string[]
   aboutLinks?: string[]
   externalLinks?: string[]
+  exactWebsiteUrl?: string // Added to store the exact website URL
 }
 
 export interface ProductsResponse {
