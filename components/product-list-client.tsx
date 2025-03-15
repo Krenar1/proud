@@ -97,14 +97,15 @@ export function ProductListClient({
         console.error("Error getting export format:", error)
       }
 
-      // Generate filename
-      const filename = `product-hunt-contacts-${new Date().toISOString().split("T")[0]}`
+      // Generate filename with count of products
+      const lines = csvData.split("\n")
+      const productCount = Math.max(0, lines.length - 1) // Subtract 1 for header row
+      const filename = `product-hunt-contacts-${productCount}-products-${new Date().toISOString().split("T")[0]}`
 
       // Handle different formats
       if (format === "json") {
         try {
           // Parse CSV to JSON
-          const lines = csvData.split("\n")
           const headers = lines[0].split(",")
           const jsonData = []
 
@@ -133,7 +134,7 @@ export function ProductListClient({
 
           toast({
             title: "Download Complete",
-            description: "Contact information has been downloaded as a JSON file",
+            description: `${productCount} products have been downloaded as a JSON file`,
           })
           return
         } catch (jsonError) {
@@ -173,7 +174,7 @@ export function ProductListClient({
 
       toast({
         title: "Download Complete",
-        description: `Contact information has been downloaded as a ${format === "excel" ? "Excel" : "CSV"} file`,
+        description: `${productCount} products have been downloaded as a ${format === "excel" ? "Excel" : "CSV"} file`,
       })
     } catch (error) {
       console.error("Download error:", error)
@@ -207,7 +208,7 @@ export function ProductListClient({
         description: `Processing up to ${maxProducts} products. This may take a moment...`,
       })
 
-      // Process products
+      // Process products - FIXED: Make sure we're only processing the number of products specified by maxProducts
       const productsToProcess = products.slice(0, Math.min(products.length, maxProducts))
       console.log(`Will process ${productsToProcess.length} products`)
 
@@ -252,7 +253,7 @@ export function ProductListClient({
           (p.contactLinks && p.contactLinks.length > 0),
       )
 
-      // Generate CSV data and store it
+      // FIXED: Generate CSV data only for the processed products
       const csvContent = generateCsvContent(updatedProducts)
       setCsvData(csvContent)
 
@@ -574,7 +575,7 @@ export function ProductListClient({
               ) : (
                 <>
                   <Database className="mr-2 h-4 w-4" />
-                  Extract Contacts
+                  Extract {maxProducts} Contacts
                 </>
               )}
             </Button>

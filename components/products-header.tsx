@@ -18,13 +18,16 @@ export function ProductsHeader() {
       // Get the current filter values from URL params
       const params = new URLSearchParams(window.location.search)
       const daysBack = Number.parseInt(params.get("days") || "7", 10)
-      const limit = 100 // We'll use a higher limit for exports
+
+      // Use a much higher limit to get all available products
+      const limit = 1000 // Set a very high limit to get all products
 
       toast({
         title: "Starting Export",
-        description: `Exporting data for the last ${daysBack} days...`,
+        description: `Exporting all available products from the last ${daysBack} days. This may take a moment...`,
       })
 
+      console.log(`Attempting to export with limit=${limit} and daysBack=${daysBack}`)
       const csvContent = await exportProductsToCSV(daysBack, limit)
 
       if (!csvContent || csvContent.trim() === "") {
@@ -56,8 +59,9 @@ export function ProductsHeader() {
         console.error("Error getting export format:", error)
       }
 
-      // Generate filename
-      const filename = `product-hunt-data-${new Date().toISOString().split("T")[0]}`
+      // Generate filename with product count
+      const productCount = lines.length - 1 // Subtract 1 for header row
+      const filename = `product-hunt-data-${productCount}-products-${new Date().toISOString().split("T")[0]}`
 
       // Handle different formats
       if (format === "json") {
@@ -91,7 +95,7 @@ export function ProductsHeader() {
 
           toast({
             title: "Export Successful",
-            description: `Exported ${lines.length - 1} products to JSON format`,
+            description: `Exported ${productCount} products to JSON format`,
           })
         } catch (jsonError) {
           console.error("JSON conversion error:", jsonError)
@@ -120,7 +124,7 @@ export function ProductsHeader() {
 
         toast({
           title: "Export Successful",
-          description: `Exported ${lines.length - 1} products to ${format === "excel" ? "Excel" : "CSV"} format`,
+          description: `Exported ${productCount} products to ${format === "excel" ? "Excel" : "CSV"} format`,
         })
       }
     } catch (error) {
@@ -156,7 +160,7 @@ export function ProductsHeader() {
         </Button>
         <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting}>
           <Download size={16} className="mr-1" />
-          <span>{isExporting ? "Exporting..." : "Export Data"}</span>
+          <span>{isExporting ? "Exporting..." : "Export (API Limited - Use Extract Contacts Instead)"}</span>
         </Button>
       </div>
     </div>

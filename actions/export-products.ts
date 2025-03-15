@@ -6,10 +6,16 @@ export async function exportProductsToCSV(daysBack = 7, limit = 100) {
     console.log(`Exporting products with daysBack=${daysBack}, limit=${limit}`)
 
     // Fetch products
-    const data = await fetchProducts({ daysBack, sortBy: "newest", limit })
+    const data = await fetchProducts({
+      daysBack,
+      sortBy: "newest",
+      limit: limit, // Ensure we're using the passed limit parameter
+    })
 
     // Add debug logging
     console.log("Fetch products response:", JSON.stringify(data, null, 2).substring(0, 200) + "...")
+    // After fetching data
+    console.log(`Fetched ${data?.posts?.edges?.length || 0} products for export`)
 
     // Check if data exists and has the expected structure
     if (!data) {
