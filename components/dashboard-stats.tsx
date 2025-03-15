@@ -3,8 +3,11 @@ import { fetchProducts } from "@/actions/fetch-products"
 import { BarChart, Download, TrendingUp, Users } from "lucide-react"
 
 export async function DashboardStats() {
-  // Fetch data for stats
-  const data = await fetchProducts({ daysBack: 7, sortBy: "newest", limit: 100 }).catch(() => null)
+  // Fetch data for stats with better error handling
+  const data = await fetchProducts({ daysBack: 7, sortBy: "newest", limit: 100 }).catch((error) => {
+    console.error("Error in DashboardStats:", error)
+    return null
+  })
 
   // Calculate stats
   const totalProducts = data?.posts.edges.length || 0

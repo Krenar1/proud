@@ -2,18 +2,24 @@
 
 import type { ProductsFilter, ProductsResponse } from "@/types/product"
 
-// Update the API key rotation system to be more resilient
-
-// Modify the API_KEYS array to ensure all keys are used properly
+// Update the API key system to better handle 401 errors
 const API_KEYS = [
   process.env.PH_TOKEN, // Primary API key
-  "jfbexJgsR826-S39rRq7iSgGKU0pH4xrhu8c2F6FY4M", // Secondary API key
-  "jBhOwMOxr_g0AjHnInCHFOw31pP_pAIieXggHOB1KBA", // Third reserve API key
+  process.env.PH_TOKEN_2, // Secondary API key
+  process.env.PH_TOKEN_3, // Third reserve API key
 ].filter(Boolean) // Filter out any undefined or empty keys
 
-// Improve the rate limit tracking with more information
+// If no API keys are available, add a console warning
+if (API_KEYS.length === 0) {
+  console.warn(
+    "No Product Hunt API keys found in environment variables. Please set PH_TOKEN, PH_TOKEN_2, or PH_TOKEN_3.",
+  )
+}
+
+// Improve the rate limit tracking with more information and add unauthorized tracking
 const keyRateLimitStatus = API_KEYS.map(() => ({
   isRateLimited: false,
+  isUnauthorized: false, // Add a flag to track unauthorized keys
   resetTime: 0,
   consecutiveFailures: 0,
   lastSuccess: Date.now(),
@@ -83,10 +89,15 @@ export const fetchProducts = async (
     console.log(`GraphQL variables:`, variables) // Log the GraphQL variables
 
     // Check if we have valid API keys
-    if (!API_KEYS[0]) {
-      console.error("No valid API keys configured")
+    if (API_KEYS.length === 0) {
+      console.error(
+        "No valid API keys configured. Please set PH_TOKEN, PH_TOKEN_2, or PH_TOKEN_3 in your environment variables.",
+      )
       throw new Error("Product Hunt API token is not configured")
     }
+
+    // Log the available API keys (without exposing the actual keys)
+    console.log(`Using ${API_KEYS.length} API key(s) with rotation`)
 
     // Try to make the API request with key rotation for rate limiting
     const data = await fetchWithKeyRotation("https://api.producthunt.com/v2/api/graphql", {
@@ -129,9 +140,14 @@ export const fetchProducts = async (
   } catch (error) {
     console.error("Error fetching products:", error)
 
-    // Return empty response structure instead of throwing
-    if (error.message && error.message.includes("429")) {
-      console.log("Rate limit exceeded, returning empty response")
+    // Return empty response structure for specific errors
+    if (
+      error.message &&
+      (error.message.includes("429") || error.message.includes("401") || error.message.includes("unauthorized"))
+    ) {
+      console.log(
+        `API error (${error.message.includes("429") ? "Rate limit" : "Unauthorized"}), returning empty response`,
+      )
       return {
         posts: {
           edges: [],
@@ -147,7 +163,7 @@ export const fetchProducts = async (
   }
 }
 
-// Replace the fetchWithKeyRotation function with this improved version
+// Replace the fetchWithKeyRotation function with this improved version that handles 401 errors
 async function fetchWithKeyRotation(url: string, options: RequestInit, retries = 5, backoff = 1000) {
   // Try each API key until we get a successful response or exhaust all keys
   const now = Date.now()
@@ -161,11 +177,13 @@ async function fetchWithKeyRotation(url: string, options: RequestInit, retries =
     }
   })
 
-  // Find all non-rate-limited keys
+  // Find all available keys (not rate-limited and not unauthorized)
   const availableKeyIndices = keyRateLimitStatus
     .map((status, index) => ({ status, index }))
-    .filter((item) => !item.status.isRateLimited)
+    .filter((item) => !item.status.isRateLimited && !item.status.isUnauthorized)
     .map((item) => item.index)
+
+  console.log(`Available API keys: ${availableKeyIndices.length}/${API_KEYS.length}`)
 
   // If we have available keys, use the one that was successful most recently
   let availableKeyIndex = -1
@@ -175,25 +193,38 @@ async function fetchWithKeyRotation(url: string, options: RequestInit, retries =
     availableKeyIndex = availableKeyIndices.sort(
       (a, b) => keyRateLimitStatus[b].lastSuccess - keyRateLimitStatus[a].lastSuccess,
     )[0]
+    console.log(`Selected API key ${availableKeyIndex + 1} based on recent success`)
   } else {
-    // If all keys are rate limited, find the one that will reset first
-    availableKeyIndex = keyRateLimitStatus.reduce(
-      (minIndex, status, index, arr) => (status.resetTime < arr[minIndex].resetTime ? index : minIndex),
-      0,
-    )
+    // If all keys are rate limited or unauthorized, check if we have any rate-limited keys that will reset
+    const rateLimitedKeys = keyRateLimitStatus
+      .map((status, index) => ({ status, index }))
+      .filter((item) => item.status.isRateLimited && !item.status.isUnauthorized)
 
-    // If the earliest reset time is in the future, wait for it
-    if (keyRateLimitStatus[availableKeyIndex].resetTime > now) {
-      const waitTime = keyRateLimitStatus[availableKeyIndex].resetTime - now
-      console.log(`All API keys are rate limited. Waiting ${waitTime}ms for reset of key ${availableKeyIndex + 1}...`)
+    if (rateLimitedKeys.length > 0) {
+      // Find the one that will reset first
+      availableKeyIndex = rateLimitedKeys.reduce(
+        (minIndex, item) =>
+          keyRateLimitStatus[item.index].resetTime < keyRateLimitStatus[minIndex].resetTime ? item.index : minIndex,
+        rateLimitedKeys[0].index,
+      )
 
-      // Wait for the key to reset
-      await new Promise((resolve) => setTimeout(resolve, waitTime + 2000)) // Add 2 second buffer
+      // If the earliest reset time is in the future, wait for it
+      if (keyRateLimitStatus[availableKeyIndex].resetTime > now) {
+        const waitTime = keyRateLimitStatus[availableKeyIndex].resetTime - now
+        console.log(`All API keys are rate limited. Waiting ${waitTime}ms for reset of key ${availableKeyIndex + 1}...`)
 
-      // Mark the key as available
-      keyRateLimitStatus[availableKeyIndex].isRateLimited = false
-      keyRateLimitStatus[availableKeyIndex].consecutiveFailures = 0
-      console.log(`Key ${availableKeyIndex + 1} should now be available after waiting`)
+        // Wait for the key to reset
+        await new Promise((resolve) => setTimeout(resolve, waitTime + 2000)) // Add 2 second buffer
+
+        // Mark the key as available
+        keyRateLimitStatus[availableKeyIndex].isRateLimited = false
+        keyRateLimitStatus[availableKeyIndex].consecutiveFailures = 0
+        console.log(`Key ${availableKeyIndex + 1} should now be available after waiting`)
+      }
+    } else {
+      // All keys are unauthorized or we have no valid keys
+      console.error("All API keys are unauthorized or invalid. Cannot proceed with request.")
+      throw new Error("All API keys are unauthorized. Please check your API keys in environment variables.")
     }
   }
 
@@ -203,6 +234,12 @@ async function fetchWithKeyRotation(url: string, options: RequestInit, retries =
   // Try the request with the current key
   try {
     console.log(`Trying request with API key ${currentKeyIndex + 1} (${retries} retries left)`)
+
+    // Check if we have a valid API key at this index
+    if (!API_KEYS[currentKeyIndex]) {
+      console.error(`API key ${currentKeyIndex + 1} is not configured or invalid`)
+      throw new Error(`API key ${currentKeyIndex + 1} is not configured or invalid`)
+    }
 
     // Add the Authorization header with the current API key
     const requestOptions = {
@@ -217,6 +254,34 @@ async function fetchWithKeyRotation(url: string, options: RequestInit, retries =
       ...requestOptions,
       cache: "no-store", // Disable caching
     })
+
+    // Handle 401 Unauthorized errors
+    if (response.status === 401) {
+      console.error(`API key ${currentKeyIndex + 1} is unauthorized (401)`)
+
+      // Mark this key as unauthorized
+      keyRateLimitStatus[currentKeyIndex] = {
+        ...keyRateLimitStatus[currentKeyIndex],
+        isUnauthorized: true,
+        consecutiveFailures: keyRateLimitStatus[currentKeyIndex].consecutiveFailures + 1,
+      }
+
+      // Check if we have other non-unauthorized keys
+      const nextAvailableKeyIndices = keyRateLimitStatus
+        .map((status, index) => ({ status, index }))
+        .filter((item) => !item.status.isUnauthorized && item.index !== currentKeyIndex)
+        .map((item) => item.index)
+
+      if (nextAvailableKeyIndices.length > 0) {
+        // We have another key available, retry immediately with that key
+        const nextKeyIndex = nextAvailableKeyIndices[0]
+        currentKeyIndex = nextKeyIndex
+        console.log(`Switching to API key ${currentKeyIndex + 1} after 401 Unauthorized`)
+        return fetchWithKeyRotation(url, options, retries, backoff)
+      } else {
+        throw new Error("All API keys are unauthorized. Please check your API keys in environment variables.")
+      }
+    }
 
     // If rate limited, mark this key as rate limited and try another key
     if (response.status === 429) {
@@ -237,7 +302,7 @@ async function fetchWithKeyRotation(url: string, options: RequestInit, retries =
       // Check if we have other non-rate-limited keys
       const nextAvailableKeyIndices = keyRateLimitStatus
         .map((status, index) => ({ status, index }))
-        .filter((item) => !item.status.isRateLimited && item.index !== currentKeyIndex)
+        .filter((item) => !item.status.isRateLimited && !item.status.isUnauthorized && item.index !== currentKeyIndex)
         .map((item) => item.index)
 
       if (nextAvailableKeyIndices.length > 0) {
@@ -276,11 +341,35 @@ async function fetchWithKeyRotation(url: string, options: RequestInit, retries =
 
     return await response.json()
   } catch (error) {
+    // Handle 401 errors specifically
+    if (error.message && error.message.includes("401") && retries > 0) {
+      console.error(`API key ${currentKeyIndex + 1} failed with 401 Unauthorized`)
+
+      // Mark this key as unauthorized
+      keyRateLimitStatus[currentKeyIndex].isUnauthorized = true
+
+      // Try to switch to another key if available
+      const nextAvailableKeyIndices = keyRateLimitStatus
+        .map((status, index) => ({ status, index }))
+        .filter((item) => !item.status.isUnauthorized && item.index !== currentKeyIndex)
+        .map((item) => item.index)
+
+      if (nextAvailableKeyIndices.length > 0) {
+        const nextKeyIndex = nextAvailableKeyIndices[0]
+        currentKeyIndex = nextKeyIndex
+        console.log(`Switching to API key ${currentKeyIndex + 1} after 401 error`)
+        return fetchWithKeyRotation(url, options, retries - 1, backoff)
+      } else {
+        throw new Error("All API keys are unauthorized. Please check your API keys in environment variables.")
+      }
+    }
+
+    // Handle rate limit errors
     if (error.message && error.message.includes("429") && retries > 0) {
       // Try to switch to another key if available
       const nextAvailableKeyIndices = keyRateLimitStatus
         .map((status, index) => ({ status, index }))
-        .filter((item) => !item.status.isRateLimited && item.index !== currentKeyIndex)
+        .filter((item) => !item.status.isRateLimited && !item.status.isUnauthorized && item.index !== currentKeyIndex)
         .map((item) => item.index)
 
       if (nextAvailableKeyIndices.length > 0) {
@@ -305,7 +394,7 @@ async function fetchWithKeyRotation(url: string, options: RequestInit, retries =
     if (retries > 0) {
       const nextAvailableKeyIndices = keyRateLimitStatus
         .map((status, index) => ({ status, index }))
-        .filter((item) => !item.status.isRateLimited && item.index !== currentKeyIndex)
+        .filter((item) => !item.status.isRateLimited && !item.status.isUnauthorized && item.index !== currentKeyIndex)
         .map((item) => item.index)
 
       if (nextAvailableKeyIndices.length > 0) {

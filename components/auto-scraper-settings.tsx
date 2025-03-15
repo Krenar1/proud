@@ -883,7 +883,11 @@ export function AutoScraperSettings() {
           <div className="flex gap-2">
             <Badge variant="outline" className="flex items-center gap-1">
               <KeyRound className="h-3 w-3" />
-              Triple API Key Rotation
+              {process.env.PH_TOKEN_2 && process.env.PH_TOKEN_3
+                ? "Triple API Key Rotation"
+                : process.env.PH_TOKEN_2 || process.env.PH_TOKEN_3
+                  ? "Dual API Key Rotation"
+                  : "Single API Key"}
             </Badge>
             <Badge variant="outline" className="flex items-center gap-1">
               <Cloud className="h-3 w-3" />
