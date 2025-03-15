@@ -356,7 +356,7 @@ export function ProductListClient({
     }
   }
 
-  // NEW APPROACH: Load products in multiple batches if needed
+  // FIXED: Load products in multiple batches if needed with deduplication
   const handleLoadMore = async () => {
     try {
       setIsLoadingMore(true)
@@ -370,6 +370,10 @@ export function ProductListClient({
       const targetLoadCount = loadCount
       console.log(`Target: Load ${targetLoadCount} more products...`)
 
+      // Keep track of existing product IDs to avoid duplicates
+      const existingProductIds = new Set(products.map((p) => p.id))
+      console.log(`Currently have ${existingProductIds.size} unique products`)
+
       // The Product Hunt API seems to have a limit of 20 products per request
       // So we'll make multiple requests if needed
       const MAX_PER_REQUEST = 20
@@ -377,6 +381,7 @@ export function ProductListClient({
       let totalLoaded = 0
       let allNewProducts: Product[] = []
       let hasMore = true
+      let duplicatesFound = 0
 
       // Make multiple requests if needed to reach the target load count
       while (totalLoaded < targetLoadCount && hasMore) {
@@ -404,13 +409,42 @@ export function ProductListClient({
           const batchProducts = result.posts.edges.map((edge) => edge.node)
           console.log(`Received ${batchProducts.length} products in this batch`)
 
+          // Filter out duplicates
+          const uniqueNewProducts = batchProducts.filter((product) => {
+            // Check if this product is already in our existing products
+            if (existingProductIds.has(product.id)) {
+              duplicatesFound++
+              return false
+            }
+
+            // Check if this product is already in our new products
+            if (allNewProducts.some((p) => p.id === product.id)) {
+              duplicatesFound++
+              return false
+            }
+
+            // Add to our set of existing IDs to avoid future duplicates
+            existingProductIds.add(product.id)
+            return true
+          })
+
+          console.log(
+            `Found ${uniqueNewProducts.length} unique new products (filtered out ${batchProducts.length - uniqueNewProducts.length} duplicates)`,
+          )
+
           // Add to our collection
-          allNewProducts = [...allNewProducts, ...batchProducts]
-          totalLoaded += batchProducts.length
+          allNewProducts = [...allNewProducts, ...uniqueNewProducts]
+          totalLoaded += uniqueNewProducts.length
 
           // Update cursor for next request
           currentCursor = result.posts.pageInfo.endCursor
           hasMore = result.posts.pageInfo.hasNextPage
+
+          // If we didn't get any unique products in this batch, we might be in a loop
+          if (uniqueNewProducts.length === 0) {
+            console.log(`No unique products in this batch, stopping to avoid infinite loop`)
+            break
+          }
 
           // If we didn't get a full batch, we're done
           if (batchProducts.length < batchSize) {
@@ -419,9 +453,9 @@ export function ProductListClient({
             break
           }
 
-          // If we've loaded enough, we're done
+          // If we've loaded enough unique products, we're done
           if (totalLoaded >= targetLoadCount) {
-            console.log(`Reached target load count of ${targetLoadCount}`)
+            console.log(`Reached target load count of ${targetLoadCount} unique products`)
             break
           }
 
@@ -437,7 +471,9 @@ export function ProductListClient({
 
       // Update the UI with all the new products
       if (allNewProducts.length > 0) {
-        console.log(`Successfully loaded ${allNewProducts.length} new products in total`)
+        console.log(
+          `Successfully loaded ${allNewProducts.length} new unique products (filtered out ${duplicatesFound} duplicates)`,
+        )
 
         setProducts((prevProducts) => [...prevProducts, ...allNewProducts])
         setEndCursor(currentCursor)
@@ -449,12 +485,15 @@ export function ProductListClient({
 
         toast({
           title: "Products Loaded",
-          description: `Loaded ${allNewProducts.length} more products. Total: ${products.length + allNewProducts.length}`,
+          description: `Loaded ${allNewProducts.length} more unique products. Total: ${products.length + allNewProducts.length}`,
         })
       } else {
         toast({
-          title: "No More Products",
-          description: "There are no more products to load",
+          title: "No New Products",
+          description:
+            duplicatesFound > 0
+              ? `Found ${duplicatesFound} products but all were duplicates. Try adjusting your filters.`
+              : "There are no more products to load",
           variant: "warning",
         })
       }
