@@ -2,9 +2,8 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Button } from "@/components/ui/button"
 import { ModeToggle } from "@/components/mode-toggle"
-import { Download, Home, BarChart3, Settings, Database } from "lucide-react"
+import { Home, BarChart3, Settings, Database } from "lucide-react"
 
 export function Navbar() {
   const pathname = usePathname()
@@ -75,10 +74,6 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="hidden sm:flex items-center gap-1">
-            <Download size={16} />
-            <span>Export</span>
-          </Button>
           <ModeToggle />
         </div>
       </div>

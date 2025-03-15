@@ -17,6 +17,8 @@ export default function ProductList() {
         const daysBack = Number.parseInt(params.get("days") || "7")
         const sortBy = (params.get("sort") || "newest") as "newest" | "popular"
 
+        console.log(`Initial load with daysBack=${daysBack}, sortBy=${sortBy}, limit=20`)
+
         // Fetch products
         const result = await fetchProducts({
           daysBack,
@@ -24,6 +26,7 @@ export default function ProductList() {
           limit: 20,
         })
 
+        console.log(`Initial load result:`, result)
         setData(result)
       } catch (err) {
         console.error("Error in ProductList:", err)

@@ -41,14 +41,25 @@ export default function ContactExtractionPage() {
     try {
       setLoading(true)
       const contactInfo = await scrapeWebsite(url)
-      setResults({
+
+      // Initialize empty arrays for any missing properties to prevent "undefined.length" errors
+      const safeResults = {
         url,
-        ...contactInfo,
-      })
+        emails: contactInfo.emails || [],
+        twitterHandles: contactInfo.socialMedia?.twitter || [],
+        facebookLinks: contactInfo.socialMedia?.facebook || [],
+        instagramLinks: contactInfo.socialMedia?.instagram || [],
+        linkedinLinks: contactInfo.socialMedia?.linkedin || [],
+        contactLinks: contactInfo.contactUrl ? [contactInfo.contactUrl] : [],
+        externalLinks: contactInfo.externalLinks || [],
+        aboutLinks: contactInfo.aboutUrl ? [contactInfo.aboutUrl] : [],
+      }
+
+      setResults(safeResults)
 
       toast({
         title: "Extraction Complete",
-        description: `Found ${contactInfo.emails.length} emails and ${contactInfo.twitterHandles.length} Twitter handles`,
+        description: `Found ${safeResults.emails.length} emails and ${safeResults.twitterHandles.length} Twitter handles`,
       })
     } catch (error) {
       console.error("Extraction error:", error)
@@ -56,6 +67,18 @@ export default function ContactExtractionPage() {
         title: "Extraction Failed",
         description: "There was an error extracting contact information",
         variant: "destructive",
+      })
+      // Set empty results to prevent errors when rendering
+      setResults({
+        url,
+        emails: [],
+        twitterHandles: [],
+        facebookLinks: [],
+        instagramLinks: [],
+        linkedinLinks: [],
+        contactLinks: [],
+        externalLinks: [],
+        aboutLinks: [],
       })
     } finally {
       setLoading(false)
@@ -150,7 +173,7 @@ export default function ContactExtractionPage() {
                   <div className="space-y-4">
                     <div>
                       <h4 className="text-sm font-medium mb-2">Emails</h4>
-                      {results.emails.length > 0 ? (
+                      {results.emails && results.emails.length > 0 ? (
                         <ul className="list-disc pl-5 space-y-1">
                           {results.emails.map((email: string, i: number) => (
                             <li key={i} className="text-sm">
@@ -165,7 +188,7 @@ export default function ContactExtractionPage() {
 
                     <div>
                       <h4 className="text-sm font-medium mb-2">Twitter Handles</h4>
-                      {results.twitterHandles.length > 0 ? (
+                      {results.twitterHandles && results.twitterHandles.length > 0 ? (
                         <ul className="list-disc pl-5 space-y-1">
                           {results.twitterHandles.map((handle: string, i: number) => (
                             <li key={i} className="text-sm">
@@ -180,7 +203,7 @@ export default function ContactExtractionPage() {
 
                     <div>
                       <h4 className="text-sm font-medium mb-2">Contact Links</h4>
-                      {results.contactLinks.length > 0 ? (
+                      {results.contactLinks && results.contactLinks.length > 0 ? (
                         <ul className="list-disc pl-5 space-y-1">
                           {results.contactLinks.map((link: string, i: number) => (
                             <li key={i} className="text-sm">
@@ -202,7 +225,7 @@ export default function ContactExtractionPage() {
 
                     <div>
                       <h4 className="text-sm font-medium mb-2">External Links</h4>
-                      {results.externalLinks.length > 0 ? (
+                      {results.externalLinks && results.externalLinks.length > 0 ? (
                         <ul className="list-disc pl-5 space-y-1">
                           {results.externalLinks.map((link: string, i: number) => (
                             <li key={i} className="text-sm">

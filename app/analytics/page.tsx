@@ -108,30 +108,34 @@ export default function AnalyticsPage() {
               ) : error ? (
                 <div className="h-[400px] flex items-center justify-center text-destructive">{error}</div>
               ) : (
-                <div className="h-[400px] overflow-auto">
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr>
-                        <th className="border p-2 text-left">Date</th>
-                        <th className="border p-2 text-left">Products Launched</th>
-                        <th className="border p-2 text-left">Visual</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {productData.map((item, index) => (
-                        <tr key={index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
-                          <td className="border p-2">{item.date}</td>
-                          <td className="border p-2">{item.count}</td>
-                          <td className="border p-2">
-                            <div
-                              className="bg-primary h-5"
-                              style={{ width: `${Math.min(item.count * 5, 100)}%` }}
-                            ></div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="h-[400px] overflow-auto border rounded-md">
+                  <div className="min-w-full inline-block align-middle">
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
+                        <thead className="bg-muted/50 sticky top-0">
+                          <tr>
+                            <th className="border p-2 text-left">Date</th>
+                            <th className="border p-2 text-left">Products Launched</th>
+                            <th className="border p-2 text-left">Visual</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {productData.map((item, index) => (
+                            <tr key={index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
+                              <td className="border p-2">{item.date}</td>
+                              <td className="border p-2">{item.count}</td>
+                              <td className="border p-2">
+                                <div
+                                  className="bg-primary h-5"
+                                  style={{ width: `${Math.min(item.count * 5, 100)}%` }}
+                                ></div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -150,42 +154,46 @@ export default function AnalyticsPage() {
               ) : error ? (
                 <div className="h-[400px] flex items-center justify-center text-destructive">{error}</div>
               ) : (
-                <div className="h-[400px] overflow-auto">
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr>
-                        <th className="border p-2 text-left">Vote Range</th>
-                        <th className="border p-2 text-left">Number of Products</th>
-                        <th className="border p-2 text-left">Visual</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {voteData.map((item, index) => (
-                        <tr key={index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
-                          <td className="border p-2">{item.name}</td>
-                          <td className="border p-2">{item.count}</td>
-                          <td className="border p-2">
-                            <div
-                              className="bg-primary h-5"
-                              style={{
-                                width: `${Math.min(item.count * 2, 100)}%`,
-                                backgroundColor:
-                                  index === 0
-                                    ? "#0088FE"
-                                    : index === 1
-                                      ? "#00C49F"
-                                      : index === 2
-                                        ? "#FFBB28"
-                                        : index === 3
-                                          ? "#FF8042"
-                                          : "#8884D8",
-                              }}
-                            ></div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="h-[400px] overflow-auto border rounded-md">
+                  <div className="min-w-full inline-block align-middle">
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
+                        <thead className="bg-muted/50 sticky top-0">
+                          <tr>
+                            <th className="border p-2 text-left">Vote Range</th>
+                            <th className="border p-2 text-left">Number of Products</th>
+                            <th className="border p-2 text-left">Visual</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {voteData.map((item, index) => (
+                            <tr key={index} className={index % 2 === 0 ? "bg-muted/50" : ""}>
+                              <td className="border p-2">{item.name}</td>
+                              <td className="border p-2">{item.count}</td>
+                              <td className="border p-2">
+                                <div
+                                  className="bg-primary h-5"
+                                  style={{
+                                    width: `${Math.min(item.count * 2, 100)}%`,
+                                    backgroundColor:
+                                      index === 0
+                                        ? "#0088FE"
+                                        : index === 1
+                                          ? "#00C49F"
+                                          : index === 2
+                                            ? "#FFBB28"
+                                            : index === 3
+                                              ? "#FF8042"
+                                              : "#8884D8",
+                                  }}
+                                ></div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
             </CardContent>

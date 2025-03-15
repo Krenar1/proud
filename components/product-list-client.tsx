@@ -29,6 +29,7 @@ export function ProductListClient({
   const [hasMorePages, setHasMorePages] = useState(hasNextPage)
   const [csvData, setCsvData] = useState<string | null>(null)
   const [maxProducts, setMaxProducts] = useState<number>(10)
+  const [loadCount, setLoadCount] = useState<number>(20)
   const { toast } = useToast()
 
   // Generate CSV content
@@ -355,7 +356,7 @@ export function ProductListClient({
     }
   }
 
-  // Load more products
+  // NEW APPROACH: Load products in multiple batches if needed
   const handleLoadMore = async () => {
     try {
       setIsLoadingMore(true)
@@ -365,46 +366,106 @@ export function ProductListClient({
       const daysBack = Number.parseInt(urlParams.get("days") || "7")
       const sortBy = (urlParams.get("sort") || "newest") as "newest" | "popular"
 
-      // Use the fetchProducts server action
-      fetchProducts({ daysBack, sortBy, limit: 20 }, endCursor)
-        .then((data) => {
-          if (data && data.posts) {
-            // Add new products to the existing list
-            const newProducts = data.posts.edges.map((edge) => edge.node)
-            setProducts((prevProducts) => [...prevProducts, ...newProducts])
+      // Get the current load count value
+      const targetLoadCount = loadCount
+      console.log(`Target: Load ${targetLoadCount} more products...`)
 
-            // Update cursor and hasNextPage state
-            setEndCursor(data.posts.pageInfo.endCursor)
-            setHasMorePages(data.posts.pageInfo.hasNextPage)
+      // The Product Hunt API seems to have a limit of 20 products per request
+      // So we'll make multiple requests if needed
+      const MAX_PER_REQUEST = 20
+      let currentCursor = endCursor
+      let totalLoaded = 0
+      let allNewProducts: Product[] = []
+      let hasMore = true
 
-            // Automatically increase maxProducts when loading more
-            const newTotal = products.length + newProducts.length
-            // Set maxProducts to either the current value or a reasonable value based on the new total
-            setMaxProducts(Math.max(maxProducts, Math.ceil(newTotal / 2)))
+      // Make multiple requests if needed to reach the target load count
+      while (totalLoaded < targetLoadCount && hasMore) {
+        // Calculate how many to load in this batch
+        const batchSize = Math.min(MAX_PER_REQUEST, targetLoadCount - totalLoaded)
+        console.log(`Loading batch of ${batchSize} products with cursor: ${currentCursor || "initial"}`)
 
-            toast({
-              title: "Products Loaded",
-              description: `Loaded ${data.posts.edges.length} more products. Processing limit updated to ${maxProducts} products.`,
-            })
+        try {
+          // Fetch a batch of products
+          const result = await fetchProducts(
+            {
+              daysBack,
+              sortBy,
+              limit: batchSize,
+            },
+            currentCursor,
+          )
+
+          if (!result || !result.posts || !result.posts.edges) {
+            console.error("Invalid response from fetchProducts:", result)
+            break
           }
-          setIsLoadingMore(false)
+
+          // Process the results
+          const batchProducts = result.posts.edges.map((edge) => edge.node)
+          console.log(`Received ${batchProducts.length} products in this batch`)
+
+          // Add to our collection
+          allNewProducts = [...allNewProducts, ...batchProducts]
+          totalLoaded += batchProducts.length
+
+          // Update cursor for next request
+          currentCursor = result.posts.pageInfo.endCursor
+          hasMore = result.posts.pageInfo.hasNextPage
+
+          // If we didn't get a full batch, we're done
+          if (batchProducts.length < batchSize) {
+            console.log(`Received fewer products than requested (${batchProducts.length} < ${batchSize}), stopping`)
+            hasMore = false
+            break
+          }
+
+          // If we've loaded enough, we're done
+          if (totalLoaded >= targetLoadCount) {
+            console.log(`Reached target load count of ${targetLoadCount}`)
+            break
+          }
+
+          // Small delay between requests to avoid rate limiting
+          if (hasMore && totalLoaded < targetLoadCount) {
+            await new Promise((resolve) => setTimeout(resolve, 500))
+          }
+        } catch (batchError) {
+          console.error("Error loading batch:", batchError)
+          break
+        }
+      }
+
+      // Update the UI with all the new products
+      if (allNewProducts.length > 0) {
+        console.log(`Successfully loaded ${allNewProducts.length} new products in total`)
+
+        setProducts((prevProducts) => [...prevProducts, ...allNewProducts])
+        setEndCursor(currentCursor)
+        setHasMorePages(hasMore)
+
+        // Automatically increase maxProducts when loading more
+        const newTotal = products.length + allNewProducts.length
+        setMaxProducts(Math.max(maxProducts, Math.ceil(newTotal / 2)))
+
+        toast({
+          title: "Products Loaded",
+          description: `Loaded ${allNewProducts.length} more products. Total: ${products.length + allNewProducts.length}`,
         })
-        .catch((error) => {
-          console.error("Error loading more products:", error)
-          toast({
-            title: "Failed to Load More",
-            description: "There was an error loading more products",
-            variant: "destructive",
-          })
-          setIsLoadingMore(false)
+      } else {
+        toast({
+          title: "No More Products",
+          description: "There are no more products to load",
+          variant: "warning",
         })
+      }
     } catch (error) {
-      console.error("Error preparing to load more products:", error)
+      console.error("Error loading more products:", error)
       toast({
         title: "Failed to Load More",
         description: "There was an error loading more products",
         variant: "destructive",
       })
+    } finally {
       setIsLoadingMore(false)
     }
   }
@@ -436,30 +497,54 @@ export function ProductListClient({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <Button
-            variant="default"
-            disabled={isExtracting || rateLimited}
-            onClick={handleExtractContactInfo}
-            className="w-full md:w-auto"
-          >
-            {isExtracting ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Extracting Contacts...
-              </>
-            ) : (
-              <>
-                <Database className="mr-2 h-4 w-4" />
-                Extract Contacts
-              </>
-            )}
-          </Button>
+        <div className="flex flex-col w-full md:w-1/2 gap-4">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">Products to Load: {loadCount}</label>
+              <span className="text-xs text-muted-foreground">{loadCount} products per page</span>
+            </div>
+            <Slider
+              value={[loadCount]}
+              min={5}
+              max={50}
+              step={5}
+              onValueChange={(value) => {
+                console.log(`Setting loadCount to ${value[0]}`)
+                setLoadCount(value[0])
+              }}
+              className="w-full"
+              disabled={isLoadingMore}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Adjust how many products to load at once when clicking "Load More"
+            </p>
+          </div>
 
-          <Button variant="outline" disabled={!csvData} onClick={handleDownloadCsv} className="w-full md:w-auto">
-            <Download className="mr-2 h-4 w-4" />
-            Download Data
-          </Button>
+          <div className="flex items-center gap-2 w-full">
+            <Button
+              variant="default"
+              disabled={isExtracting || rateLimited}
+              onClick={handleExtractContactInfo}
+              className="w-full md:w-auto"
+            >
+              {isExtracting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Extracting Contacts...
+                </>
+              ) : (
+                <>
+                  <Database className="mr-2 h-4 w-4" />
+                  Extract Contacts
+                </>
+              )}
+            </Button>
+
+            <Button variant="outline" disabled={!csvData} onClick={handleDownloadCsv} className="w-full md:w-auto">
+              <Download className="mr-2 h-4 w-4" />
+              Download Data
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -485,7 +570,7 @@ export function ProductListClient({
                 Loading...
               </>
             ) : (
-              "Load More"
+              `Load ${loadCount} More`
             )}
           </Button>
         </div>

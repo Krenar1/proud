@@ -110,182 +110,186 @@ function extractSocialMedia($: cheerio.CheerioAPI): {
     linkedin: [] as string[],
   }
 
-  // Look for social media links with comprehensive selectors
-  $(
-    "a[href*='twitter.com'], a[href*='x.com'], a[href*='t.co'], a[href*='facebook.com'], a[href*='fb.com'], a[href*='instagram.com'], a[href*='linkedin.com'], [class*='social'], [id*='social'], footer a, .footer a",
-  ).each((_, element) => {
-    try {
-      const href = $(element).attr("href") || ""
-      const text = $(element).text() || ""
-      const classes = $(element).attr("class") || ""
+  try {
+    // Look for social media links with comprehensive selectors
+    $(
+      "a[href*='twitter.com'], a[href*='x.com'], a[href*='t.co'], a[href*='facebook.com'], a[href*='fb.com'], a[href*='instagram.com'], a[href*='linkedin.com'], [class*='social'], [id*='social'], footer a, .footer a",
+    ).each((_, element) => {
+      try {
+        const href = $(element).attr("href") || ""
+        const text = $(element).text() || ""
+        const classes = $(element).attr("class") || ""
 
-      // Only process if we have a valid href
-      if (!href || href === "#" || href === "/" || href.startsWith("javascript:")) {
-        return
-      }
+        // Only process if we have a valid href
+        if (!href || href === "#" || href === "/" || href.startsWith("javascript:")) {
+          return
+        }
 
-      // Check for Twitter
-      if (href.includes("twitter.com/") || href.includes("x.com/") || href.includes("t.co/")) {
-        // Extract handle from URL
-        let handle = ""
+        // Check for Twitter
+        if (href.includes("twitter.com/") || href.includes("x.com/") || href.includes("t.co/")) {
+          // Extract handle from URL
+          let handle = ""
 
-        // Parse the URL to extract the handle
-        try {
-          const url = new URL(href.startsWith("http") ? href : `https:${href}`)
-          const pathParts = url.pathname.split("/").filter(Boolean)
+          // Parse the URL to extract the handle
+          try {
+            const url = new URL(href.startsWith("http") ? href : `https:${href}`)
+            const pathParts = url.pathname.split("/").filter(Boolean)
 
-          // Validate the path has a username component
-          if (pathParts.length > 0) {
-            handle = pathParts[0]
+            // Validate the path has a username component
+            if (pathParts.length > 0) {
+              handle = pathParts[0]
 
-            // Skip known non-username paths
-            if (
-              [
-                "share",
-                "intent",
-                "home",
-                "hashtag",
-                "compose",
-                "search",
-                "explore",
-                "notifications",
-                "messages",
-                "settings",
-              ].includes(handle.toLowerCase())
-            ) {
-              return
+              // Skip known non-username paths
+              if (
+                [
+                  "share",
+                  "intent",
+                  "home",
+                  "hashtag",
+                  "compose",
+                  "search",
+                  "explore",
+                  "notifications",
+                  "messages",
+                  "settings",
+                ].includes(handle.toLowerCase())
+              ) {
+                return
+              }
+
+              // Clean up the handle
+              handle = handle.replace(/[?#].*$/, "").trim()
+
+              // Add @ if it's missing
+              if (handle && !handle.startsWith("@")) {
+                handle = `@${handle}`
+              }
+
+              if (handle && handle.length > 1) {
+                socialMedia.twitter.push(handle)
+              }
             }
-
-            // Clean up the handle
-            handle = handle.replace(/[?#].*$/, "").trim()
-
-            // Add @ if it's missing
-            if (handle && !handle.startsWith("@")) {
-              handle = `@${handle}`
-            }
-
-            if (handle && handle.length > 1) {
+          } catch (e) {
+            // If URL parsing fails, try regex extraction
+            const twitterHandleRegex = /twitter\.com\/([A-Za-z0-9_]+)/i
+            const match = href.match(twitterHandleRegex)
+            if (match && match[1]) {
+              handle = `@${match[1]}`
               socialMedia.twitter.push(handle)
             }
           }
-        } catch (e) {
-          // If URL parsing fails, try regex extraction
-          const twitterHandleRegex = /twitter\.com\/([A-Za-z0-9_]+)/i
-          const match = href.match(twitterHandleRegex)
-          if (match && match[1]) {
-            handle = `@${match[1]}`
-            socialMedia.twitter.push(handle)
+        }
+
+        // Check for Facebook
+        if (href.includes("facebook.com/") || href.includes("fb.com/")) {
+          try {
+            // Normalize the URL
+            let fbUrl = href
+            if (!fbUrl.startsWith("http")) {
+              fbUrl = `https:${fbUrl.startsWith("//") ? fbUrl : `//${fbUrl}`}`
+            }
+
+            // Parse the URL
+            const url = new URL(fbUrl)
+
+            // Skip sharing and dialog URLs
+            if (url.pathname.includes("/sharer") || url.pathname.includes("/dialog")) {
+              return
+            }
+
+            // Clean up the URL
+            const cleanUrl = `${url.origin}${url.pathname.split("?")[0]}`
+
+            // Only add if it's likely a profile or page
+            if (cleanUrl.length > 25 && !cleanUrl.endsWith("facebook.com/") && !cleanUrl.endsWith("fb.com/")) {
+              socialMedia.facebook.push(cleanUrl)
+            }
+          } catch (e) {
+            // If URL parsing fails, just use the original href if it looks valid
+            if (href.includes("facebook.com/") && href.length > 25) {
+              socialMedia.facebook.push(href)
+            }
           }
         }
-      }
 
-      // Check for Facebook
-      if (href.includes("facebook.com/") || href.includes("fb.com/")) {
-        try {
-          // Normalize the URL
-          let fbUrl = href
-          if (!fbUrl.startsWith("http")) {
-            fbUrl = `https:${fbUrl.startsWith("//") ? fbUrl : `//${fbUrl}`}`
-          }
+        // Check for Instagram
+        if (href.includes("instagram.com/")) {
+          try {
+            // Normalize the URL
+            let igUrl = href
+            if (!igUrl.startsWith("http")) {
+              igUrl = `https:${igUrl.startsWith("//") ? igUrl : `//${igUrl}`}`
+            }
 
-          // Parse the URL
-          const url = new URL(fbUrl)
+            // Parse the URL
+            const url = new URL(igUrl)
+            const pathParts = url.pathname.split("/").filter(Boolean)
 
-          // Skip sharing and dialog URLs
-          if (url.pathname.includes("/sharer") || url.pathname.includes("/dialog")) {
-            return
-          }
+            // Skip non-profile URLs
+            if (pathParts.length === 0 || ["p", "explore", "direct", "stories"].includes(pathParts[0])) {
+              return
+            }
 
-          // Clean up the URL
-          const cleanUrl = `${url.origin}${url.pathname.split("?")[0]}`
+            // Clean up the URL
+            const cleanUrl = `${url.origin}/${pathParts[0]}`
 
-          // Only add if it's likely a profile or page
-          if (cleanUrl.length > 25 && !cleanUrl.endsWith("facebook.com/") && !cleanUrl.endsWith("fb.com/")) {
-            socialMedia.facebook.push(cleanUrl)
-          }
-        } catch (e) {
-          // If URL parsing fails, just use the original href if it looks valid
-          if (href.includes("facebook.com/") && href.length > 25) {
-            socialMedia.facebook.push(href)
-          }
-        }
-      }
-
-      // Check for Instagram
-      if (href.includes("instagram.com/")) {
-        try {
-          // Normalize the URL
-          let igUrl = href
-          if (!igUrl.startsWith("http")) {
-            igUrl = `https:${igUrl.startsWith("//") ? igUrl : `//${igUrl}`}`
-          }
-
-          // Parse the URL
-          const url = new URL(igUrl)
-          const pathParts = url.pathname.split("/").filter(Boolean)
-
-          // Skip non-profile URLs
-          if (pathParts.length === 0 || ["p", "explore", "direct", "stories"].includes(pathParts[0])) {
-            return
-          }
-
-          // Clean up the URL
-          const cleanUrl = `${url.origin}/${pathParts[0]}`
-
-          // Only add if it looks like a profile
-          if (cleanUrl.length > 25 && !cleanUrl.endsWith("instagram.com/")) {
-            socialMedia.instagram.push(cleanUrl)
-          }
-        } catch (e) {
-          // If URL parsing fails, just use the original href if it looks valid
-          if (href.includes("instagram.com/") && href.length > 25 && !href.includes("instagram.com/p/")) {
-            socialMedia.instagram.push(href)
+            // Only add if it looks like a profile
+            if (cleanUrl.length > 25 && !cleanUrl.endsWith("instagram.com/")) {
+              socialMedia.instagram.push(cleanUrl)
+            }
+          } catch (e) {
+            // If URL parsing fails, just use the original href if it looks valid
+            if (href.includes("instagram.com/") && href.length > 25 && !href.includes("instagram.com/p/")) {
+              socialMedia.instagram.push(href)
+            }
           }
         }
-      }
 
-      // Check for LinkedIn
-      if (href.includes("linkedin.com/")) {
-        try {
-          // Normalize the URL
-          let liUrl = href
-          if (!liUrl.startsWith("http")) {
-            liUrl = `https:${liUrl.startsWith("//") ? liUrl : `//${liUrl}`}`
-          }
+        // Check for LinkedIn
+        if (href.includes("linkedin.com/")) {
+          try {
+            // Normalize the URL
+            let liUrl = href
+            if (!liUrl.startsWith("http")) {
+              liUrl = `https:${liUrl.startsWith("//") ? liUrl : `//${liUrl}`}`
+            }
 
-          // Parse the URL
-          const url = new URL(liUrl)
+            // Parse the URL
+            const url = new URL(liUrl)
 
-          // Skip sharing URLs
-          if (url.pathname.includes("/share") || url.pathname.includes("/shareArticle")) {
-            return
-          }
+            // Skip sharing URLs
+            if (url.pathname.includes("/share") || url.pathname.includes("/shareArticle")) {
+              return
+            }
 
-          // Clean up the URL
-          const cleanUrl = `${url.origin}${url.pathname.split("?")[0]}`
+            // Clean up the URL
+            const cleanUrl = `${url.origin}${url.pathname.split("?")[0]}`
 
-          // Only add if it's likely a profile or company page
-          if (
-            cleanUrl.length > 25 &&
-            (cleanUrl.includes("/in/") || cleanUrl.includes("/company/") || cleanUrl.includes("/school/"))
-          ) {
-            socialMedia.linkedin.push(cleanUrl)
-          }
-        } catch (e) {
-          // If URL parsing fails, just use the original href if it looks valid
-          if (
-            href.includes("linkedin.com/") &&
-            href.length > 25 &&
-            (href.includes("/in/") || href.includes("/company/") || href.includes("/school/"))
-          ) {
-            socialMedia.linkedin.push(href)
+            // Only add if it's likely a profile or company page
+            if (
+              cleanUrl.length > 25 &&
+              (cleanUrl.includes("/in/") || cleanUrl.includes("/company/") || cleanUrl.includes("/school/"))
+            ) {
+              socialMedia.linkedin.push(cleanUrl)
+            }
+          } catch (e) {
+            // If URL parsing fails, just use the original href if it looks valid
+            if (
+              href.includes("linkedin.com/") &&
+              href.length > 25 &&
+              (href.includes("/in/") || href.includes("/company/") || href.includes("/school/"))
+            ) {
+              socialMedia.linkedin.push(href)
+            }
           }
         }
+      } catch (error) {
+        // Skip this element and continue
       }
-    } catch (error) {
-      // Skip this element and continue
-    }
-  })
+    })
+  } catch (error) {
+    console.error("Error extracting social media:", error)
+  }
 
   // Remove duplicates and normalize
   return {
@@ -1030,6 +1034,7 @@ export async function scrapeWebsite(url: string): Promise<{
   contactUrl: string | null
   aboutUrl: string | null
   exactWebsiteUrl: string
+  externalLinks?: string[]
 }> {
   // Default empty response
   const emptyResult = {
@@ -1043,6 +1048,7 @@ export async function scrapeWebsite(url: string): Promise<{
     contactUrl: null,
     aboutUrl: null,
     exactWebsiteUrl: url,
+    externalLinks: [],
   }
 
   // Validate URL before proceeding
@@ -1126,6 +1132,7 @@ export async function scrapeWebsite(url: string): Promise<{
         contactUrl: string | null
         aboutUrl: string | null
         exactWebsiteUrl: string
+        externalLinks: string[]
       }>(async (resolve) => {
         try {
           // Extract emails directly from HTML
@@ -1211,6 +1218,26 @@ export async function scrapeWebsite(url: string): Promise<{
             // Continue with empty about page results
           }
 
+          // Extract external links (limited to 10)
+          const externalLinks: string[] = []
+          try {
+            $("a[href^='http']").each((_, element) => {
+              if (externalLinks.length >= 10) return false // Limit to 10 links
+
+              const href = $(element).attr("href") || ""
+              if (
+                href &&
+                !href.includes(new URL(url).hostname) &&
+                !href.includes("producthunt.com") &&
+                isValidUrl(href)
+              ) {
+                externalLinks.push(href)
+              }
+            })
+          } catch (linksError) {
+            console.error(`Error extracting external links for ${url}:`, linksError)
+          }
+
           // Combine all results, removing duplicates
           resolve({
             emails: [
@@ -1259,6 +1286,7 @@ export async function scrapeWebsite(url: string): Promise<{
             contactUrl: contactPageResults.contactUrl,
             aboutUrl: aboutPageResults.aboutUrl,
             exactWebsiteUrl,
+            externalLinks: [...new Set(externalLinks)],
           })
         } catch (parseError) {
           console.error(`Error in parse promise for ${url}:`, parseError)
@@ -1277,6 +1305,7 @@ export async function scrapeWebsite(url: string): Promise<{
         contactUrl: string | null
         aboutUrl: string | null
         exactWebsiteUrl: string
+        externalLinks: string[]
       }>((_, reject) => {
         setTimeout(() => reject(new Error("Parsing timed out")), 8000) // Increased timeout for more thorough parsing
       })
@@ -1387,6 +1416,7 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
           contactUrl: string | null
           aboutUrl: string | null
           exactWebsiteUrl: string
+          externalLinks?: string[]
         }>((_, reject) => {
           setTimeout(() => reject(new Error(`Processing timed out for ${product.name}`)), 15000) // Increased timeout for more thorough processing
         })
@@ -1404,6 +1434,7 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
             contactUrl: null,
             aboutUrl: null,
             exactWebsiteUrl: website,
+            externalLinks: [],
           }
         })
 
@@ -1420,7 +1451,7 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
             linkedinLinks: contactInfo.socialMedia.linkedin || [],
             contactLinks: contactInfo.contactUrl ? [contactInfo.contactUrl] : [],
             aboutLinks: contactInfo.aboutUrl ? [contactInfo.aboutUrl] : [],
-            externalLinks: [], // Skip external links to save time
+            externalLinks: contactInfo.externalLinks || [],
           }
         }
 
