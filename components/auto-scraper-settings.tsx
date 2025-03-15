@@ -90,7 +90,13 @@ export function AutoScraperSettings() {
         const savedWebhookUrl = localStorage.getItem(STORAGE_KEYS.WEBHOOK_URL) || ""
         const savedIsEnabled = localStorage.getItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED) === "true"
 
+        console.log("Loaded settings from localStorage:", {
+          webhookUrl: savedWebhookUrl ? "URL exists" : "No URL",
+          isEnabled: savedIsEnabled,
+        })
+
         setWebhookUrl(savedWebhookUrl)
+        setIsEnabled(savedIsEnabled)
 
         // Load seen product IDs from localStorage
         const savedProductIds = localStorage.getItem(STORAGE_KEYS.SEEN_PRODUCT_IDS)
@@ -152,6 +158,18 @@ export function AutoScraperSettings() {
       }
     }
   }, [])
+
+  // Add this after the other useEffect hooks
+  useEffect(() => {
+    // Save settings whenever they change
+    if (webhookUrl) {
+      localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, webhookUrl)
+      console.log("Saved webhook URL to localStorage (from effect):", webhookUrl)
+    }
+
+    localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, isEnabled.toString())
+    console.log("Saved auto-scraper enabled status to localStorage:", isEnabled)
+  }, [webhookUrl, isEnabled])
 
   // Update product counters
   const updateProductCounters = (products: Product[]) => {
@@ -737,7 +755,13 @@ export function AutoScraperSettings() {
                 id="webhookUrl"
                 placeholder="https://discord.com/api/webhooks/..."
                 value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value)}
+                onChange={(e) => {
+                  const newUrl = e.target.value
+                  setWebhookUrl(newUrl)
+                  // Save immediately to localStorage when changed
+                  localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, newUrl)
+                  console.log("Saved webhook URL to localStorage:", newUrl)
+                }}
                 type="url"
                 className="font-mono text-sm"
               />
@@ -1046,6 +1070,25 @@ export function AutoScraperSettings() {
             ) : (
               "Check Now"
             )}
+          </Button>
+
+          <Button
+            variant="outline"
+            onClick={() => {
+              // Force save all settings
+              localStorage.setItem(STORAGE_KEYS.WEBHOOK_URL, webhookUrl)
+              localStorage.setItem(STORAGE_KEYS.AUTO_SCRAPER_ENABLED, isEnabled.toString())
+
+              toast({
+                title: "Settings Saved",
+                description: "Your webhook URL and auto-scraper settings have been saved",
+              })
+
+              console.log("Manually saved all settings to localStorage")
+            }}
+          >
+            <Save className="mr-2 h-4 w-4" />
+            Save Settings
           </Button>
 
           <Dialog open={isTimeRangeDialogOpen} onOpenChange={setIsTimeRangeDialogOpen}>
