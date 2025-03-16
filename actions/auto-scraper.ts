@@ -237,7 +237,10 @@ export async function initializeAutoScraper(webhookUrl: string): Promise<{
 }
 
 // Update the checkForNewProducts function to focus only on new products
-export async function checkForNewProducts(webhookUrl: string): Promise<{
+export async function checkForNewProducts(
+  webhookUrl: string,
+  limit = 20,
+): Promise<{
   success: boolean
   newProducts: Product[]
   message: string
@@ -279,11 +282,11 @@ export async function checkForNewProducts(webhookUrl: string): Promise<{
 
     while (retryCount < MAX_RETRIES) {
       try {
-        console.log(`Fetch attempt ${retryCount + 1} for new products`)
+        console.log(`Fetch attempt ${retryCount + 1} for new products (limit: ${limit})`)
         data = await fetchProducts({
           daysBack: 1, // Only look at the last day for truly new products
           sortBy: "newest",
-          limit: 20, // Limit to 20 newest products for efficiency
+          limit: limit, // Use the provided limit parameter instead of hardcoded 20
         })
 
         if (data?.posts?.edges) {
