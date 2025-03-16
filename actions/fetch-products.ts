@@ -1,4 +1,4 @@
-"use server"
+"\"use server"
 
 import type { ProductsFilter, ProductsResponse } from "@/types/product"
 
@@ -425,5 +425,25 @@ async function setCachedData(key: string, data: any, ttlSeconds: number) {
     data,
     expiry: Date.now() + ttlSeconds * 1000,
   })
+}
+
+export async function fetchNewProducts(limit = 20): Promise<any[]> {
+  try {
+    const data = await fetchProducts({
+      daysBack: 1, // Only look at the last day for truly new products
+      sortBy: "newest",
+      limit: limit, // Use the provided limit parameter
+    })
+
+    if (!data?.posts?.edges) {
+      console.warn("No products found in the last day")
+      return []
+    }
+
+    return data.posts.edges.map((edge) => edge.node)
+  } catch (error) {
+    console.error("Error fetching new products:", error)
+    return []
+  }
 }
 
