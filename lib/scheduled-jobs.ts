@@ -1,5 +1,5 @@
 import { checkForNewProducts } from "@/actions/auto-scraper"
-import { prisma } from "@/lib/prisma"
+import { getSettings, saveSettings, addLog } from "@/lib/file-storage"
 
 // In-memory flag to prevent concurrent runs
 let isScraperRunning = false
@@ -24,53 +24,55 @@ export async function runAutoScraperJob(): Promise<{
     isScraperRunning = true
     console.log("Starting auto-scraper job...")
 
-    // Get the latest settings from the database
-    const settings = await prisma.scraperSettings.findFirst({
-      where: { active: true },
-      orderBy: { updatedAt: "desc" },
-    })
+    // Get the latest settings
+    const settings = getSettings()
+    console.log("Retrieved settings:", JSON.stringify(settings, null, 2))
 
-    if (!settings || !settings.enabled) {
-      console.log("Auto-scraper is disabled or no settings found")
+    // For manual runs, we'll proceed even if the scraper is disabled
+    // We'll just check if we have the necessary settings
+    if (!settings) {
+      console.error("No settings found, this should not happen with our initialization")
       isScraperRunning = false
       return {
         success: false,
-        message: "Auto-scraper is disabled or no settings found",
+        message: "No settings found. Please check server logs.",
       }
     }
 
-    // Run the scraper with the settings
-    const result = await checkForNewProducts(
-      settings.numProductsToCheck,
-      settings.notifyDiscord,
-      settings.discordWebhook || undefined,
+    // Determine how many products to check
+    const numProductsToCheck = settings.numProductsToCheck || 50
+
+    // Determine if we should notify Discord
+    const notifyDiscord = settings.notifyDiscord || false
+
+    // Get the Discord webhook URL
+    const discordWebhook = settings.discordWebhook || undefined
+
+    console.log(
+      `Running scraper with: products=${numProductsToCheck}, notify=${notifyDiscord}, webhook=${discordWebhook ? "set" : "not set"}`,
     )
+
+    // Run the scraper with the settings
+    const result = await checkForNewProducts(numProductsToCheck, notifyDiscord, discordWebhook)
 
     // Log the results
     console.log(
       `Auto-scraper job completed: Found ${result.newProducts.length} new products out of ${result.totalChecked} checked`,
     )
 
-    // Update the last run time and stats in the database
-    await prisma.scraperSettings.update({
-      where: { id: settings.id },
-      data: {
-        lastRunAt: new Date(),
-        totalRuns: { increment: 1 },
-        totalProductsFound: { increment: result.newProducts.length },
-        totalProductsChecked: { increment: result.totalChecked },
-      },
-    })
+    // Update the last run time and stats in the settings
+    settings.lastRunAt = new Date().toISOString()
+    settings.totalRuns = (settings.totalRuns || 0) + 1
+    settings.totalProductsFound = (settings.totalProductsFound || 0) + result.newProducts.length
+    settings.totalProductsChecked = (settings.totalProductsChecked || 0) + result.totalChecked
+    saveSettings(settings)
 
     // Create a log entry
-    await prisma.scraperLog.create({
-      data: {
-        success: true,
-        newProductsFound: result.newProducts.length,
-        productsChecked: result.totalChecked,
-        settingsId: settings.id,
-        message: `Found ${result.newProducts.length} new products out of ${result.totalChecked} checked`,
-      },
+    addLog({
+      success: true,
+      newProductsFound: result.newProducts.length,
+      productsChecked: result.totalChecked,
+      message: `Found ${result.newProducts.length} new products out of ${result.totalChecked} checked`,
     })
 
     isScraperRunning = false
@@ -84,13 +86,11 @@ export async function runAutoScraperJob(): Promise<{
 
     // Create an error log entry
     try {
-      await prisma.scraperLog.create({
-        data: {
-          success: false,
-          newProductsFound: 0,
-          productsChecked: 0,
-          message: `Error: ${error instanceof Error ? error.message : String(error)}`,
-        },
+      addLog({
+        success: false,
+        newProductsFound: 0,
+        productsChecked: 0,
+        message: `Error: ${error instanceof Error ? error.message : String(error)}`,
       })
     } catch (logError) {
       console.error("Failed to log error:", logError)

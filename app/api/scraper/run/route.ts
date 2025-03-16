@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server"
 import { runAutoScraperJob } from "@/lib/scheduled-jobs"
+import { initializeStorage } from "@/lib/file-storage"
 
 export async function POST() {
   try {
+    // Ensure storage is initialized
+    initializeStorage()
+
+    console.log("Manual scraper run triggered")
+
     // Run the auto-scraper job
     const result = await runAutoScraperJob()
 

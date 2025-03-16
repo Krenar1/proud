@@ -69,9 +69,9 @@ export function AutoScraperSettings() {
         }
 
         setStats({
-          newProductsFound: data.settings.totalProductsFound,
-          totalRuns: data.settings.totalRuns,
-          totalProductsChecked: data.settings.totalProductsChecked,
+          newProductsFound: data.settings.totalProductsFound || 0,
+          totalRuns: data.settings.totalRuns || 0,
+          totalProductsChecked: data.settings.totalProductsChecked || 0,
           lastRunStatus: "",
         })
       }
@@ -180,7 +180,8 @@ export function AutoScraperSettings() {
       })
 
       if (!response.ok) {
-        throw new Error(`Failed to run scraper: ${response.status}`)
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || `Failed to run scraper: ${response.status}`)
       }
 
       const result = await response.json()
@@ -202,7 +203,7 @@ export function AutoScraperSettings() {
 
       toast({
         title: "Error",
-        description: "Failed to run the auto-scraper.",
+        description: "Failed to run the auto-scraper: " + (err instanceof Error ? err.message : "Unknown error"),
         variant: "destructive",
       })
     } finally {

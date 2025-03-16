@@ -1,20 +1,14 @@
 import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { getSettings, saveSettings, getLogs } from "@/lib/file-storage"
 import { runAutoScraperJob } from "@/lib/scheduled-jobs"
 
 export async function GET() {
   try {
-    // Get the current active settings
-    const settings = await prisma.scraperSettings.findFirst({
-      where: { active: true },
-      orderBy: { updatedAt: "desc" },
-    })
+    // Get the current settings
+    const settings = getSettings()
 
     // Get the latest logs
-    const logs = await prisma.scraperLog.findMany({
-      take: 10,
-      orderBy: { createdAt: "desc" },
-    })
+    const logs = getLogs()
 
     return NextResponse.json({ settings, logs })
   } catch (error) {
@@ -32,27 +26,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid settings: 'enabled' must be a boolean" }, { status: 400 })
     }
 
-    // Deactivate all current settings
-    await prisma.scraperSettings.updateMany({
-      where: { active: true },
-      data: { active: false },
-    })
+    // Get current settings
+    const currentSettings = getSettings() || {}
 
-    // Create new settings
-    const newSettings = await prisma.scraperSettings.create({
-      data: {
-        enabled: data.enabled,
-        interval: data.interval || 30,
-        numProductsToCheck: data.numProductsToCheck || 50,
-        discordWebhook: data.discordWebhook || null,
-        notifyDiscord: data.notifyDiscord || false,
-        deepScanEnabled: data.deepScanEnabled ?? true,
-        obfuscationEnabled: data.obfuscationEnabled ?? true,
-        socialMediaEnabled: data.socialMediaEnabled ?? true,
-        autoRetryEnabled: data.autoRetryEnabled ?? true,
-        active: true,
-      },
-    })
+    // Create new settings by merging with current settings
+    const newSettings = {
+      ...currentSettings,
+      enabled: data.enabled,
+      interval: data.interval || 30,
+      numProductsToCheck: data.numProductsToCheck || 50,
+      discordWebhook: data.discordWebhook || null,
+      notifyDiscord: data.notifyDiscord || false,
+      deepScanEnabled: data.deepScanEnabled ?? true,
+      obfuscationEnabled: data.obfuscationEnabled ?? true,
+      socialMediaEnabled: data.socialMediaEnabled ?? true,
+      autoRetryEnabled: data.autoRetryEnabled ?? true,
+    }
+
+    // Save the settings
+    saveSettings(newSettings)
 
     // If enabled, run the scraper job immediately
     if (data.enabled && data.runImmediately) {
