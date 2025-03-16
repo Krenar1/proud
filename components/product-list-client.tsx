@@ -212,128 +212,99 @@ export function ProductListClient({
       const productsToProcess = products.slice(0, Math.min(products.length, maxProducts))
       console.log(`Will process ${productsToProcess.length} products`)
 
-      // Set a timeout for the entire extraction process
-      const extractionPromise =
-        maxProducts > 10
-          ? processBatches(productsToProcess, 5) // Process in batches of 5 for large requests
-          : extractContactInfo(productsToProcess, maxProducts)
-
-      const timeoutPromise = new Promise<Product[]>((_, reject) => {
-        // Set timeout based on number of products (8 seconds per product + 15 seconds base)
-        const timeout = Math.min(15000 + maxProducts * 8000, 120000) // Max 120 seconds (2 minutes)
-        setTimeout(() => reject(new Error("Extraction timed out")), timeout)
-      })
-
-      const updatedProducts = await Promise.race([extractionPromise, timeoutPromise]).catch((error) => {
-        console.error("Extraction error or timeout:", error)
+      // For large batches, provide visual feedback and prevent page freeze
+      if (maxProducts > 10) {
+        // First show a notification for better UX
         toast({
-          title: "Extraction Partially Completed",
-          description: "Some products may not have been fully processed due to timeout or errors",
-          variant: "warning",
+          title: "Processing Large Batch",
+          description: "Breaking processing into smaller batches to prevent browser freezing",
         })
-        // Return what we have so far
-        return productsToProcess
-      })
 
-      console.log(`Received ${updatedProducts.length} updated products`)
+        // Process in smaller chunks with visual feedback
+        const CHUNK_SIZE = 5
+        const chunks = []
 
-      // Update the products state
-      setProducts((prevProducts) => {
-        return prevProducts.map((product) => {
-          const updatedProduct = updatedProducts.find((p) => p.id === product.id)
-          return updatedProduct || product
-        })
-      })
-
-      // Count products with contact info
-      const productsWithContactInfo = updatedProducts.filter(
-        (p) =>
-          (p.emails && p.emails.length > 0) ||
-          (p.twitterHandles && p.twitterHandles.length > 0) ||
-          (p.contactLinks && p.contactLinks.length > 0),
-      )
-
-      // FIXED: Generate CSV data only for the processed products
-      const csvContent = generateCsvContent(updatedProducts)
-      setCsvData(csvContent)
-
-      // Trigger automatic download
-      try {
-        // Get the current export format from settings
-        let format = "csv"
-        try {
-          const savedSettings = localStorage.getItem("productHuntScraperSettings")
-          if (savedSettings) {
-            const settings = JSON.parse(savedSettings)
-            format = settings.exportFormat || "csv"
-            console.log(`Using export format for auto-download: ${format}`)
-          }
-        } catch (error) {
-          console.error("Error getting export format:", error)
+        for (let i = 0; i < productsToProcess.length; i += CHUNK_SIZE) {
+          chunks.push(productsToProcess.slice(i, i + CHUNK_SIZE))
         }
 
-        // Generate filename
-        const filename = `product-hunt-contacts-${new Date().toISOString().split("T")[0]}`
+        let allProcessedProducts: Product[] = []
 
-        // Handle different formats
-        if (format === "json") {
+        for (let i = 0; i < chunks.length; i++) {
+          // Update progress
+          toast({
+            title: `Processing Batch ${i + 1}/${chunks.length}`,
+            description: `Please avoid switching tabs during processing`,
+            duration: 3000,
+          })
+
+          // Process this chunk
           try {
-            // Parse CSV to JSON
-            const lines = csvContent.split("\n")
-            const headers = lines[0].split(",")
-            const jsonData = []
+            // Add small delay to allow UI updates
+            await new Promise((resolve) => setTimeout(resolve, 300))
 
-            for (let i = 1; i < lines.length; i++) {
-              if (!lines[i].trim()) continue
-              const obj = {}
-              const currentLine = lines[i].split(",")
+            const chunkResults = await processBatches(chunks[i], 3)
+            allProcessedProducts = [...allProcessedProducts, ...chunkResults]
 
-              for (let j = 0; j < headers.length; j++) {
-                obj[headers[j]] = currentLine[j]
-              }
-              jsonData.push(obj)
-            }
-
-            // Create JSON blob and download
-            const jsonContent = JSON.stringify(jsonData, null, 2)
-            const blob = new Blob([jsonContent], { type: "application/json;charset=utf-8;" })
-            const url = URL.createObjectURL(blob)
-            const link = document.createElement("a")
-            link.href = url
-            link.download = `${filename}.json`
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-            URL.revokeObjectURL(url)
-          } catch (jsonError) {
-            console.error("JSON conversion error:", jsonError)
-            // Fall back to CSV
-            format = "csv"
+            // Short yield to browser
+            await new Promise((resolve) => setTimeout(resolve, 500))
+          } catch (error) {
+            console.error(`Error processing chunk ${i}:`, error)
+            // Continue with next chunk even if this one failed
           }
         }
 
-        // Handle CSV and Excel formats
-        if (format === "csv" || format === "excel") {
-          const extension = format === "excel" ? ".xlsx" : ".csv"
-          const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-          const url = URL.createObjectURL(blob)
-          const link = document.createElement("a")
-          link.href = url
-          link.download = `${filename}${extension}`
-          document.body.appendChild(link)
-          link.click()
-          document.body.removeChild(link)
-          URL.revokeObjectURL(url)
+        // Update products with results
+        if (allProcessedProducts.length > 0) {
+          setProducts((prevProducts) => {
+            return prevProducts.map((product) => {
+              const updatedProduct = allProcessedProducts.find((p) => p.id === product.id)
+              return updatedProduct || product
+            })
+          })
+
+          // Generate CSV with what we have
+          const csvContent = generateCsvContent(allProcessedProducts)
+          setCsvData(csvContent)
         }
-      } catch (downloadError) {
-        console.error("Error auto-downloading file:", downloadError)
-        // We'll still have the manual download button as fallback
+      } else {
+        // For small batches, use the original approach
+        const extractionPromise = extractContactInfo(productsToProcess, maxProducts)
+        const timeoutPromise = new Promise<Product[]>((_, reject) => {
+          const timeout = Math.min(15000 + maxProducts * 6000, 90000) // Max 90 seconds
+          setTimeout(() => reject(new Error("Extraction timed out")), timeout)
+        })
+
+        const updatedProducts = await Promise.race([extractionPromise, timeoutPromise]).catch((error) => {
+          console.error("Extraction error or timeout:", error)
+          toast({
+            title: "Extraction Partially Completed",
+            description: "Some products may not have been fully processed due to timeout or errors",
+            variant: "warning",
+          })
+          // Return what we have so far
+          return productsToProcess
+        })
+
+        console.log(`Received ${updatedProducts.length} updated products`)
+
+        // Update the products state
+        setProducts((prevProducts) => {
+          return prevProducts.map((product) => {
+            const updatedProduct = updatedProducts.find((p) => p.id === product.id)
+            return updatedProduct || product
+          })
+        })
+
+        // Generate CSV data with what we have
+        const csvContent = generateCsvContent(updatedProducts)
+        setCsvData(csvContent)
       }
 
-      // Update the toast message to reflect the format
+      // Success notification
       toast({
         title: "Contact Extraction Complete",
-        description: `Found contact info for ${productsWithContactInfo.length} out of ${updatedProducts.length} products. Data has been downloaded.`,
+        description: `Contact information has been extracted and data is ready for download.`,
       })
     } catch (error) {
       console.error("Contact extraction error:", error)

@@ -7,24 +7,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
-import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
-import { checkForNewProducts, resetScrapedProducts } from "@/actions/auto-scraper"
 import { useToast } from "@/hooks/use-toast"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { InfoIcon, CheckIcon, RefreshCw, Loader2, ArrowDownToLine } from "lucide-react"
+import { CheckIcon, RefreshCw, Loader2, ArrowDownToLine, AlertTriangle, Server } from "lucide-react"
 
-// Storage keys
-const STORAGE_KEYS = {
-  WEBHOOK_URL: "discordWebhookUrl",
-  AUTO_SCRAPER_ENABLED: "autoScraperEnabled",
-  SEEN_PRODUCT_IDS: "seenProductIds",
-  LAST_SYNC_TIME: "lastSyncTime",
-  SCRAPED_PRODUCTS: "scrapedProducts",
-  INIT_MODE: "autoScraperInitMode",
-}
-
-// Update the UI to focus only on new products and improve real-time extraction
 export function AutoScraperSettings() {
   const { toast } = useToast()
   const [isEnabled, setIsEnabled] = useState(false)
@@ -33,9 +20,11 @@ export function AutoScraperSettings() {
   const [lastRun, setLastRun] = useState<Date | null>(null)
   const [discordWebhook, setDiscordWebhook] = useState("")
   const [notifyDiscord, setNotifyDiscord] = useState(false)
-  const [numProductsToCheck, setNumProductsToCheck] = useState(50) // Default to 50, up from 20
+  const [numProductsToCheck, setNumProductsToCheck] = useState(50)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  // New advanced settings
+  // Advanced settings
   const [deepScanEnabled, setDeepScanEnabled] = useState(true)
   const [obfuscationDetectionEnabled, setObfuscationDetectionEnabled] = useState(true)
   const [socialMediaExtraction, setSocialMediaExtraction] = useState(true)
@@ -44,126 +33,219 @@ export function AutoScraperSettings() {
   // Stats
   const [stats, setStats] = useState({
     newProductsFound: 0,
-    productsWithEmails: 0,
-    productsWithTwitter: 0,
-    productsWithWebsites: 0,
-    totalProcessed: 0,
+    totalRuns: 0,
+    totalProductsChecked: 0,
+    lastRunStatus: "",
   })
 
-  // Save settings to localStorage
-  useEffect(() => {
-    const settings = {
-      isEnabled,
-      interval,
-      discordWebhook,
-      notifyDiscord,
-      numProductsToCheck,
-      deepScanEnabled,
-      obfuscationDetectionEnabled,
-      socialMediaExtraction,
-      autoRetryEnabled,
-    }
-    localStorage.setItem("autoScraperSettings", JSON.stringify(settings))
-  }, [
-    isEnabled,
-    interval,
-    discordWebhook,
-    notifyDiscord,
-    numProductsToCheck,
-    deepScanEnabled,
-    obfuscationDetectionEnabled,
-    socialMediaExtraction,
-    autoRetryEnabled,
-  ])
+  // Logs
+  const [logs, setLogs] = useState<any[]>([])
 
-  // Load settings from localStorage
-  useEffect(() => {
-    const savedSettings = localStorage.getItem("autoScraperSettings")
-    if (savedSettings) {
-      const settings = JSON.parse(savedSettings)
-      setIsEnabled(settings.isEnabled ?? false)
-      setInterval(settings.interval ?? 30)
-      setDiscordWebhook(settings.discordWebhook ?? "")
-      setNotifyDiscord(settings.notifyDiscord ?? false)
-      setNumProductsToCheck(settings.numProductsToCheck ?? 50)
-      setDeepScanEnabled(settings.deepScanEnabled ?? true)
-      setObfuscationDetectionEnabled(settings.obfuscationDetectionEnabled ?? true)
-      setSocialMediaExtraction(settings.socialMediaExtraction ?? true)
-      setAutoRetryEnabled(settings.autoRetryEnabled ?? true)
+  // Load settings from the server
+  const loadSettings = useCallback(async () => {
+    try {
+      setLoading(true)
+      const response = await fetch("/api/scraper-settings")
+
+      if (!response.ok) {
+        throw new Error(`Failed to load settings: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      if (data.settings) {
+        setIsEnabled(data.settings.enabled)
+        setInterval(data.settings.interval)
+        setDiscordWebhook(data.settings.discordWebhook || "")
+        setNotifyDiscord(data.settings.notifyDiscord)
+        setNumProductsToCheck(data.settings.numProductsToCheck)
+        setDeepScanEnabled(data.settings.deepScanEnabled)
+        setObfuscationDetectionEnabled(data.settings.obfuscationEnabled)
+        setSocialMediaExtraction(data.settings.socialMediaEnabled)
+        setAutoRetryEnabled(data.settings.autoRetryEnabled)
+
+        if (data.settings.lastRunAt) {
+          setLastRun(new Date(data.settings.lastRunAt))
+        }
+
+        setStats({
+          newProductsFound: data.settings.totalProductsFound,
+          totalRuns: data.settings.totalRuns,
+          totalProductsChecked: data.settings.totalProductsChecked,
+          lastRunStatus: "",
+        })
+      }
+
+      if (data.logs) {
+        setLogs(data.logs)
+
+        // Update last run status from the most recent log
+        if (data.logs.length > 0) {
+          const lastLog = data.logs[0]
+          setStats((prev) => ({
+            ...prev,
+            lastRunStatus: lastLog.success ? "Success" : "Failed",
+          }))
+        }
+      }
+
+      setError(null)
+    } catch (err) {
+      console.error("Error loading settings:", err)
+      setError("Failed to load settings from server")
+    } finally {
+      setLoading(false)
     }
   }, [])
 
-  const runScraper = useCallback(async () => {
+  // Load settings on component mount
+  useEffect(() => {
+    loadSettings()
+
+    // Set up a polling interval to refresh the status
+    const intervalId = setInterval(() => {
+      loadSettings()
+    }, 60000) // Refresh every minute
+
+    return () => clearInterval(intervalId)
+  }, [loadSettings])
+
+  // Save settings to the server
+  const saveSettings = async (runImmediately = false) => {
+    try {
+      setError(null)
+
+      const response = await fetch("/api/scraper-settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          enabled: isEnabled,
+          interval,
+          discordWebhook,
+          notifyDiscord,
+          numProductsToCheck,
+          deepScanEnabled,
+          obfuscationEnabled: obfuscationDetectionEnabled,
+          socialMediaEnabled: socialMediaExtraction,
+          autoRetryEnabled,
+          runImmediately,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to save settings: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      toast({
+        title: "Settings saved",
+        description: "Your auto-scraper settings have been saved to the server.",
+      })
+
+      // Refresh settings
+      loadSettings()
+
+      return data
+    } catch (err) {
+      console.error("Error saving settings:", err)
+      setError("Failed to save settings to server")
+
+      toast({
+        title: "Error",
+        description: "Failed to save settings to server.",
+        variant: "destructive",
+      })
+
+      return null
+    }
+  }
+
+  // Run the scraper manually
+  const runScraper = async () => {
     if (isRunning) return
 
-    setIsRunning(true)
-    setLastRun(new Date())
-
     try {
-      const result = await checkForNewProducts(numProductsToCheck, notifyDiscord, discordWebhook)
+      setIsRunning(true)
+      setError(null)
 
-      // Count products with emails, twitter, and websites
-      const productsWithEmails = result.newProducts.filter((p) => p.emails && p.emails.length > 0).length
-      const productsWithTwitter = result.newProducts.filter(
-        (p) => p.twitterHandles && p.twitterHandles.length > 0,
-      ).length
-      const productsWithWebsites = result.newProducts.filter((p) => p.website && p.website.trim() !== "").length
+      // First save the current settings
+      await saveSettings(false)
 
-      // Update stats
-      setStats({
-        newProductsFound: result.newProducts.length,
-        productsWithEmails,
-        productsWithTwitter,
-        productsWithWebsites,
-        totalProcessed: result.totalChecked,
+      // Then trigger the scraper
+      const response = await fetch("/api/scraper/run", {
+        method: "POST",
       })
 
+      if (!response.ok) {
+        throw new Error(`Failed to run scraper: ${response.status}`)
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        toast({
+          title: "Auto-scraper completed",
+          description: `Found ${result.newProducts || 0} new products.`,
+        })
+      } else {
+        throw new Error(result.message || "Unknown error")
+      }
+
+      // Refresh settings and logs
+      loadSettings()
+    } catch (err) {
+      console.error("Error running scraper:", err)
+      setError(err instanceof Error ? err.message : "Failed to run scraper")
+
       toast({
-        title: "Auto-scraper completed",
-        description: `Found ${result.newProducts.length} new products. ${productsWithEmails} with emails, ${productsWithTwitter} with Twitter.`,
-      })
-    } catch (error) {
-      console.error("Error running auto-scraper:", error)
-      toast({
-        title: "Auto-scraper error",
-        description: "An error occurred while running the auto-scraper.",
+        title: "Error",
+        description: "Failed to run the auto-scraper.",
         variant: "destructive",
       })
     } finally {
       setIsRunning(false)
     }
-  }, [isRunning, numProductsToCheck, notifyDiscord, discordWebhook, toast])
+  }
 
-  // Setup interval
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null
+  // Toggle the scraper enabled state
+  const toggleScraper = async () => {
+    const newState = !isEnabled
+    setIsEnabled(newState)
 
-    if (isEnabled && !isRunning) {
-      // Run immediately when enabled
-      runScraper()
+    // Save the new state to the server
+    await saveSettings(newState) // Run immediately if enabling
+  }
 
-      // Then setup interval
-      intervalId = setInterval(
-        () => {
-          runScraper()
-        },
-        interval * 60 * 1000,
-      ) // Convert minutes to milliseconds
-    }
+  // Reset the scraper
+  const resetScraper = async () => {
+    try {
+      const response = await fetch("/api/scraper/reset", {
+        method: "POST",
+      })
 
-    return () => {
-      if (intervalId) {
-        clearInterval(intervalId)
+      if (!response.ok) {
+        throw new Error(`Failed to reset scraper: ${response.status}`)
       }
-    }
-  }, [isEnabled, interval, isRunning, runScraper])
 
-  const resetCache = () => {
-    resetScrapedProducts()
-    toast({
-      title: "Cache reset",
-      description: "The scraper will now check all products again.",
-    })
+      toast({
+        title: "Scraper reset",
+        description: "The scraper cache has been reset.",
+      })
+
+      // Refresh settings and logs
+      loadSettings()
+    } catch (err) {
+      console.error("Error resetting scraper:", err)
+
+      toast({
+        title: "Error",
+        description: "Failed to reset the scraper.",
+        variant: "destructive",
+      })
+    }
   }
 
   return (
@@ -171,8 +253,10 @@ export function AutoScraperSettings() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-2xl">Auto Contact Scraper</CardTitle>
-            <CardDescription>Automatically scrape contact information from new products</CardDescription>
+            <CardTitle className="text-2xl">Server-Side Auto Scraper</CardTitle>
+            <CardDescription>
+              Continuously scrapes contact information 24/7, even when your browser is closed
+            </CardDescription>
           </div>
           <Badge variant={isEnabled ? "default" : "outline"} className="ml-2">
             {isEnabled ? "Active" : "Inactive"}
@@ -180,229 +264,255 @@ export function AutoScraperSettings() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="flex flex-col space-y-1.5">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="auto-scraper-switch" className="text-base font-semibold">
-              Auto-Scraper Status
-            </Label>
-            <Switch id="auto-scraper-switch" checked={isEnabled} onCheckedChange={setIsEnabled} disabled={isRunning} />
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="ml-2">Loading settings...</span>
           </div>
-          <p className="text-sm text-muted-foreground">
-            When enabled, the scraper will automatically check for new products and extract contact information.
-          </p>
-        </div>
+        ) : (
+          <>
+            {error && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Error occurred</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="interval" className="text-base font-semibold">
-              Check for new products every {interval} minutes
-            </Label>
-            <Slider
-              id="interval"
-              min={5}
-              max={120}
-              step={5}
-              value={[interval]}
-              onValueChange={(value) => setInterval(value[0])}
-              disabled={isRunning}
-            />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>5 min</span>
-              <span>1 hour</span>
-              <span>2 hours</span>
-            </div>
-          </div>
+            <Alert variant="default" className="bg-primary/10 border-primary/20">
+              <Server className="h-4 w-4" />
+              <AlertTitle>Server-Side Processing</AlertTitle>
+              <AlertDescription>
+                This scraper runs on the server and will continue to work 24/7 even when your browser is closed. The
+                scraper runs automatically at the configured interval.
+              </AlertDescription>
+            </Alert>
 
-          <div className="space-y-2">
-            <Label htmlFor="products-to-check" className="text-base font-semibold">
-              Number of products to check per scan: {numProductsToCheck}
-            </Label>
-            <Slider
-              id="products-to-check"
-              min={20}
-              max={100}
-              step={10}
-              value={[numProductsToCheck]}
-              onValueChange={(value) => setNumProductsToCheck(value[0])}
-              disabled={isRunning}
-            />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>20</span>
-              <span>50</span>
-              <span>100</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <Label htmlFor="discord-webhook" className="text-base font-semibold">
-            Discord Webhook URL (optional)
-          </Label>
-          <Input
-            id="discord-webhook"
-            placeholder="https://discord.com/api/webhooks/..."
-            value={discordWebhook}
-            onChange={(e) => setDiscordWebhook(e.target.value)}
-            disabled={isRunning}
-          />
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="notify-discord"
-              checked={notifyDiscord}
-              onCheckedChange={setNotifyDiscord}
-              disabled={isRunning || !discordWebhook}
-            />
-            <Label htmlFor="notify-discord">Send notifications to Discord</Label>
-          </div>
-        </div>
-
-        <div className="space-y-3 border rounded-lg p-4">
-          <h3 className="font-semibold text-base">Advanced Scraping Settings</h3>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="deep-scan-switch" className="cursor-pointer flex items-center">
-                Deep Website Scanning
-              </Label>
-              <Switch
-                id="deep-scan-switch"
-                checked={deepScanEnabled}
-                onCheckedChange={setDeepScanEnabled}
-                disabled={isRunning}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Check website code, scripts, and CSS files for hidden contact information
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="obfuscation-detection-switch" className="cursor-pointer flex items-center">
-                Obfuscated Email Detection
-              </Label>
-              <Switch
-                id="obfuscation-detection-switch"
-                checked={obfuscationDetectionEnabled}
-                onCheckedChange={setObfuscationDetectionEnabled}
-                disabled={isRunning}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Detect emails that use [at], (dot) or other anti-scraper techniques
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="social-media-switch" className="cursor-pointer flex items-center">
-                Social Media Extraction
-              </Label>
-              <Switch
-                id="social-media-switch"
-                checked={socialMediaExtraction}
-                onCheckedChange={setSocialMediaExtraction}
-                disabled={isRunning}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Extract Twitter handles, Facebook, Instagram, and LinkedIn links
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="auto-retry-switch" className="cursor-pointer flex items-center">
-                Auto-Retry Failed Requests
-              </Label>
-              <Switch
-                id="auto-retry-switch"
-                checked={autoRetryEnabled}
-                onCheckedChange={setAutoRetryEnabled}
-                disabled={isRunning}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">Automatically retry failed requests with different settings</p>
-          </div>
-        </div>
-
-        <div className="border rounded-lg p-4">
-          <h3 className="font-semibold text-base mb-3">Expected Success Rates</h3>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <div className="flex justify-between text-sm">
-                <span>Email Discovery</span>
-                <span className="font-medium">100%</span>
+            <div className="flex flex-col space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="auto-scraper-switch" className="text-base font-semibold">
+                  Auto-Scraper Status
+                </Label>
+                <Switch
+                  id="auto-scraper-switch"
+                  checked={isEnabled}
+                  onCheckedChange={toggleScraper}
+                  disabled={isRunning}
+                />
               </div>
-              <Progress value={100} className="h-2" />
+              <p className="text-sm text-muted-foreground">
+                When enabled, the server will automatically check for new products and extract contact information.
+              </p>
             </div>
-            <div className="space-y-1">
-              <div className="flex justify-between text-sm">
-                <span>Twitter Handles</span>
-                <span className="font-medium">100%</span>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="interval" className="text-base font-semibold">
+                  Check for new products every {interval} minutes
+                </Label>
+                <Slider
+                  id="interval"
+                  min={5}
+                  max={120}
+                  step={5}
+                  value={[interval]}
+                  onValueChange={(value) => setInterval(value[0])}
+                  disabled={isRunning}
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>5 min</span>
+                  <span>1 hour</span>
+                  <span>2 hours</span>
+                </div>
               </div>
-              <Progress value={100} className="h-2" />
-            </div>
-            <div className="space-y-1">
-              <div className="flex justify-between text-sm">
-                <span>Website Links</span>
-                <span className="font-medium">100%</span>
+
+              <div className="space-y-2">
+                <Label htmlFor="products-to-check" className="text-base font-semibold">
+                  Number of products to check per scan: {numProductsToCheck}
+                </Label>
+                <Slider
+                  id="products-to-check"
+                  min={20}
+                  max={100}
+                  step={10}
+                  value={[numProductsToCheck]}
+                  onValueChange={(value) => setNumProductsToCheck(value[0])}
+                  disabled={isRunning}
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>20</span>
+                  <span>50</span>
+                  <span>100</span>
+                </div>
               </div>
-              <Progress value={100} className="h-2" />
             </div>
-          </div>
-        </div>
 
-        <Alert>
-          <InfoIcon className="h-4 w-4" />
-          <AlertTitle>Advanced Contact Discovery</AlertTitle>
-          <AlertDescription>
-            <p className="mb-2">This scraper uses advanced techniques to find contact information:</p>
-            <ul className="list-disc pl-5 space-y-1 text-sm">
-              <li>Multi-page scanning of websites (main, contact, and about pages)</li>
-              <li>Obfuscated email detection (emails protected against scrapers)</li>
-              <li>Twitter handle extraction from icons and links</li>
-              <li>Redirect following for accurate website URLs</li>
-              <li>API key rotation to avoid rate limiting</li>
-              <li>Automatic retry mechanisms for failed scrapes</li>
-            </ul>
-          </AlertDescription>
-        </Alert>
+            <div className="space-y-3">
+              <Label htmlFor="discord-webhook" className="text-base font-semibold">
+                Discord Webhook URL (optional)
+              </Label>
+              <Input
+                id="discord-webhook"
+                placeholder="https://discord.com/api/webhooks/..."
+                value={discordWebhook}
+                onChange={(e) => setDiscordWebhook(e.target.value)}
+                disabled={isRunning}
+              />
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="notify-discord"
+                  checked={notifyDiscord}
+                  onCheckedChange={setNotifyDiscord}
+                  disabled={isRunning || !discordWebhook}
+                />
+                <Label htmlFor="notify-discord">Send notifications to Discord</Label>
+              </div>
+            </div>
 
-        <div className="flex flex-col space-y-2">
-          <div className="text-sm font-medium">Recent Results</div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-md border p-2">
-              <div className="text-xs text-muted-foreground">New Products</div>
-              <div className="text-lg font-bold">{stats.newProductsFound}</div>
-            </div>
-            <div className="rounded-md border p-2">
-              <div className="text-xs text-muted-foreground">With Emails</div>
-              <div className="text-lg font-bold">{stats.productsWithEmails}</div>
-            </div>
-            <div className="rounded-md border p-2">
-              <div className="text-xs text-muted-foreground">With Twitter</div>
-              <div className="text-lg font-bold">{stats.productsWithTwitter}</div>
-            </div>
-            <div className="rounded-md border p-2">
-              <div className="text-xs text-muted-foreground">Total Checked</div>
-              <div className="text-lg font-bold">{stats.totalProcessed}</div>
-            </div>
-          </div>
-        </div>
+            <div className="space-y-3 border rounded-lg p-4">
+              <h3 className="font-semibold text-base">Advanced Scraping Settings</h3>
 
-        {lastRun && <div className="text-sm text-muted-foreground">Last run: {lastRun.toLocaleTimeString()}</div>}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="deep-scan-switch" className="cursor-pointer flex items-center">
+                    Deep Website Scanning
+                  </Label>
+                  <Switch
+                    id="deep-scan-switch"
+                    checked={deepScanEnabled}
+                    onCheckedChange={setDeepScanEnabled}
+                    disabled={isRunning}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Check website code, scripts, and CSS files for hidden contact information
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="obfuscation-detection-switch" className="cursor-pointer flex items-center">
+                    Obfuscated Email Detection
+                  </Label>
+                  <Switch
+                    id="obfuscation-detection-switch"
+                    checked={obfuscationDetectionEnabled}
+                    onCheckedChange={setObfuscationDetectionEnabled}
+                    disabled={isRunning}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Detect emails that use [at], (dot) or other anti-scraper techniques
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="social-media-switch" className="cursor-pointer flex items-center">
+                    Social Media Extraction
+                  </Label>
+                  <Switch
+                    id="social-media-switch"
+                    checked={socialMediaExtraction}
+                    onCheckedChange={setSocialMediaExtraction}
+                    disabled={isRunning}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Extract Twitter handles, Facebook, Instagram, and LinkedIn links
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="auto-retry-switch" className="cursor-pointer flex items-center">
+                    Auto-Retry Failed Requests
+                  </Label>
+                  <Switch
+                    id="auto-retry-switch"
+                    checked={autoRetryEnabled}
+                    onCheckedChange={setAutoRetryEnabled}
+                    disabled={isRunning}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Automatically retry failed requests with different settings
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col space-y-2">
+              <div className="text-sm font-medium">Server Statistics</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border p-2">
+                  <div className="text-xs text-muted-foreground">Total Products Found</div>
+                  <div className="text-lg font-bold">{stats.newProductsFound}</div>
+                </div>
+                <div className="rounded-md border p-2">
+                  <div className="text-xs text-muted-foreground">Total Runs</div>
+                  <div className="text-lg font-bold">{stats.totalRuns}</div>
+                </div>
+                <div className="rounded-md border p-2">
+                  <div className="text-xs text-muted-foreground">Products Checked</div>
+                  <div className="text-lg font-bold">{stats.totalProductsChecked}</div>
+                </div>
+                <div className="rounded-md border p-2">
+                  <div className="text-xs text-muted-foreground">Last Run Status</div>
+                  <div className="text-lg font-bold">{stats.lastRunStatus || "N/A"}</div>
+                </div>
+              </div>
+            </div>
+
+            {logs.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium">Recent Activity</h3>
+                <div className="max-h-40 overflow-y-auto border rounded-md">
+                  <table className="min-w-full divide-y divide-border">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Time</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Status</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Products</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Message</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border bg-background">
+                      {logs.map((log) => (
+                        <tr key={log.id}>
+                          <td className="px-3 py-2 text-xs">{new Date(log.createdAt).toLocaleString()}</td>
+                          <td className="px-3 py-2 text-xs">
+                            <Badge variant={log.success ? "default" : "destructive"}>
+                              {log.success ? "Success" : "Failed"}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2 text-xs">
+                            {log.newProductsFound} / {log.productsChecked}
+                          </td>
+                          <td className="px-3 py-2 text-xs truncate max-w-[200px]">{log.message || "No message"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {lastRun && (
+              <div className="text-sm text-muted-foreground">Last server run: {lastRun.toLocaleString()}</div>
+            )}
+          </>
+        )}
       </CardContent>
       <CardFooter className="flex justify-between">
         <div className="flex space-x-2">
-          <Button variant="outline" size="sm" onClick={resetCache} disabled={isRunning}>
+          <Button variant="outline" size="sm" onClick={resetScraper} disabled={isRunning}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Reset Cache
           </Button>
 
-          <Button variant="outline" size="sm" disabled={isRunning}>
+          <Button variant="outline" size="sm" onClick={saveSettings} disabled={isRunning}>
             <ArrowDownToLine className="mr-2 h-4 w-4" />
-            Export Contact Data
+            Save Settings
           </Button>
         </div>
 
@@ -410,12 +520,12 @@ export function AutoScraperSettings() {
           {isRunning ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Checking...
+              Running...
             </>
           ) : (
             <>
               <CheckIcon className="mr-2 h-4 w-4" />
-              Check Now
+              Run Now
             </>
           )}
         </Button>

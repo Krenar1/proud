@@ -80,23 +80,35 @@ export async function sendDiscordNotification(product: Product, webhookUrl: stri
       avatar_url: "https://ph-static.imgix.net/ph-logo-1.png",
     }
 
-    // Send the webhook request
-    const response = await fetch(webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    })
+    // Send the webhook request with a timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
 
-    if (!response.ok) {
-      console.error(`Discord webhook error: ${response.status} ${response.statusText}`)
+    try {
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        console.error(`Discord webhook error: ${response.status} ${response.statusText}`)
+        return false
+      }
+
+      console.log(`Successfully sent Discord notification for ${product.name}`)
+      return true
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      console.error(`Error sending Discord webhook: ${fetchError.message}`)
       return false
     }
-
-    console.log(`Successfully sent Discord notification for ${product.name}`)
-    return true
   } catch (error) {
     console.error("Error sending Discord notification:", error)
     return false

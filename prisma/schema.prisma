@@ -1,0 +1,54 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model ScraperSettings {
+  id                  String       @id @default(cuid())
+  enabled             Boolean      @default(false)
+  interval            Int          @default(30) // minutes
+  numProductsToCheck  Int          @default(50)
+  discordWebhook      String?
+  notifyDiscord       Boolean      @default(false)
+  deepScanEnabled     Boolean      @default(true)
+  obfuscationEnabled  Boolean      @default(true)
+  socialMediaEnabled  Boolean      @default(true)
+  autoRetryEnabled    Boolean      @default(true)
+  active              Boolean      @default(true)
+  lastRunAt           DateTime?
+  totalRuns           Int          @default(0)
+  totalProductsFound  Int          @default(0)
+  totalProductsChecked Int         @default(0)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  logs                ScraperLog[]
+}
+
+model ScraperLog {
+  id               String          @id @default(cuid())
+  success          Boolean         @default(true)
+  newProductsFound Int             @default(0)
+  productsChecked  Int             @default(0)
+  message          String?
+  settingsId       String?
+  settings         ScraperSettings? @relation(fields: [settingsId], references: [id])
+  createdAt        DateTime        @default(now())
+}
+
+model ScrapedProduct {
+  id              String    @id
+  name            String
+  url             String
+  website         String?
+  emails          String?   // Stored as JSON string
+  twitterHandles  String?   // Stored as JSON string
+  createdAt       DateTime  @default(now())
+}
+

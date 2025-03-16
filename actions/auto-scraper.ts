@@ -236,208 +236,6 @@ export async function initializeAutoScraper(webhookUrl: string): Promise<{
   }
 }
 
-// Update the checkForNewProducts function to focus only on new products and check more products
-// export async function checkForNewProducts(
-//   webhookUrl: string,
-//   limit = 100,
-// ): Promise<{
-//   success: boolean
-//   newProducts: Product[]
-//   message: string
-//   seenIds?: string[]
-// }> {
-//   // Prevent concurrent runs
-//   if (isRunning) {
-//     console.log("Skipping check - another scraping operation is already in progress")
-//     return {
-//       success: false,
-//       newProducts: [],
-//       message: "Another scraping operation is already in progress",
-//     }
-//   }
-
-//   // Implement rate limiting to prevent too frequent calls
-//   const now = Date.now()
-//   const timeSinceLastRun = now - lastRunTime
-//   const MIN_INTERVAL = 30000 // 30 seconds minimum between runs
-
-//   if (timeSinceLastRun < MIN_INTERVAL) {
-//     console.log(`Rate limiting - last run was ${timeSinceLastRun}ms ago, minimum interval is ${MIN_INTERVAL}ms`)
-//     return {
-//       success: false,
-//       newProducts: [],
-//       message: `Please wait ${Math.ceil((MIN_INTERVAL - timeSinceLastRun) / 1000)} seconds before checking again`,
-//     }
-//   }
-
-//   try {
-//     console.log(`Starting check for new products with limit: ${limit}...`)
-//     isRunning = true
-//     lastRunTime = now
-
-//     // Fetch the latest products with more retries
-//     let data
-//     let retryCount = 0
-//     const MAX_RETRIES = 3
-
-//     while (retryCount < MAX_RETRIES) {
-//       try {
-//         console.log(`Fetch attempt ${retryCount + 1} for new products (limit: ${limit})`)
-//         data = await fetchProducts({
-//           daysBack: 1, // Only look at the last day for truly new products
-//           sortBy: "newest",
-//           limit: limit, // Use the provided limit parameter
-//         })
-
-//         if (data?.posts?.edges) {
-//           console.log(`Successfully fetched ${data.posts.edges.length} products on attempt ${retryCount + 1}`)
-//           break // Success, exit the retry loop
-//         }
-//       } catch (fetchError) {
-//         console.error(`Fetch attempt ${retryCount + 1} failed:`, fetchError)
-
-//         // If this isn't our last retry, wait before trying again
-//         if (retryCount < MAX_RETRIES - 1) {
-//           const backoffTime = 5000 * (retryCount + 1)
-//           console.log(`Waiting ${backoffTime}ms before retry ${retryCount + 2}`)
-//           await new Promise((resolve) => setTimeout(resolve, backoffTime))
-//         }
-//       }
-
-//       retryCount++
-//     }
-
-//     if (!data?.posts?.edges) {
-//       console.error("Failed to fetch products after all retry attempts")
-//       isRunning = false
-//       return {
-//         success: false,
-//         newProducts: [],
-//         message: "Failed to fetch products from Product Hunt API after multiple attempts",
-//       }
-//     }
-
-//     // Find new products that we haven't seen before
-//     const newProducts: Product[] = []
-//     console.log(`Checking ${data.posts.edges.length} products against ${seenProductIds.size} known products`)
-
-//     for (const edge of data.posts.edges) {
-//       const product = edge.node
-
-//       if (!seenProductIds.has(product.id)) {
-//         console.log(`Found new product: ${product.name} (${product.id})`)
-//         newProducts.push(product)
-//         seenProductIds.add(product.id)
-//       }
-//     }
-
-//     // If we have new products, extract contact information and send notifications
-//     if (newProducts.length > 0) {
-//       console.log(`Found ${newProducts.length} new products. Immediately extracting contact information...`)
-
-//       try {
-//         // Extract contact info for all new products at once
-//         console.log("Starting immediate contact extraction for new products...")
-//         const productsWithContacts = await extractContactInfo(newProducts, newProducts.length)
-//         console.log(`Successfully extracted contact info for ${productsWithContacts.length} new products`)
-
-//         // Ensure we're using the exact website URL, not redirected ones
-//         const optimizedProducts = productsWithContacts.map((product) => {
-//           if (product.website && product.exactWebsiteUrl) {
-//             return {
-//               ...product,
-//               website: product.exactWebsiteUrl,
-//             }
-//           }
-//           return product
-//         })
-
-//         // Send Discord notifications immediately
-//         console.log(`Immediately sending ${optimizedProducts.length} notifications to Discord...`)
-
-//         const notificationPromises = optimizedProducts.map(async (product, index) => {
-//           if (webhookUrl) {
-//             try {
-//               // Minimal staggering to avoid Discord rate limits
-//               if (index > 0) {
-//                 await new Promise((resolve) => setTimeout(resolve, 200))
-//               }
-
-//               console.log(`Sending notification for new product: ${product.name}`)
-//               return await sendDiscordNotification(product, webhookUrl)
-//             } catch (notifyError) {
-//               console.error(`Error sending notification for new product ${product.id}:`, notifyError)
-//               return false
-//             }
-//           }
-//           return false
-//         })
-
-//         // Wait for all notifications to complete
-//         const notificationResults = await Promise.all(notificationPromises)
-//         const notificationsSent = notificationResults.filter(Boolean).length
-
-//         console.log(`Sent ${notificationsSent} notifications for new products to Discord`)
-//       } catch (extractError) {
-//         console.error("Error during contact extraction for new products:", extractError)
-
-//         // Even if extraction fails, try to send basic notifications
-//         console.log("Falling back to basic product data for notifications...")
-
-//         const fallbackPromises = newProducts.map(async (product, index) => {
-//           if (webhookUrl) {
-//             try {
-//               if (index > 0) {
-//                 await new Promise((resolve) => setTimeout(resolve, 200))
-//               }
-//               return await sendDiscordNotification(product, webhookUrl)
-//             } catch (notifyError) {
-//               console.error(`Error sending fallback notification for new product ${product.id}:`, notifyError)
-//               return false
-//             }
-//           }
-//           return false
-//         })
-
-//         const fallbackResults = await Promise.all(fallbackPromises)
-//         const fallbackNotificationsSent = fallbackResults.filter(Boolean).length
-
-//         console.log(`Sent ${fallbackNotificationsSent} fallback notifications for new products to Discord`)
-//       }
-//     } else {
-//       console.log("No new products found in this check")
-//     }
-
-//     // Limit the size of seenProductIds to prevent memory issues
-//     if (seenProductIds.size > 1000) {
-//       // Convert to array, keep only the most recent 500
-//       const productIdsArray = Array.from(seenProductIds)
-//       seenProductIds = new Set(productIdsArray.slice(productIdsArray.length - 500))
-//       console.log(`Trimmed seenProductIds to ${seenProductIds.size} entries to prevent memory issues`)
-//     }
-
-//     console.log("Check for new products completed successfully")
-//     isRunning = false
-//     return {
-//       success: true,
-//       newProducts,
-//       message:
-//         newProducts.length > 0
-//           ? `Found and scraped ${newProducts.length} new products with contact information`
-//           : "No new products found",
-//       seenIds: Array.from(seenProductIds), // Return the updated list of seen IDs
-//     }
-//   } catch (error) {
-//     console.error("Error checking for new products:", error)
-//     isRunning = false
-//     return {
-//       success: false,
-//       newProducts: [],
-//       message: `Error checking for new products: ${error.message}`,
-//     }
-//   }
-// }
-
 import { fetchNewProducts } from "./fetch-products"
 
 let scrapedProductIds = new Set<string>()
@@ -453,40 +251,106 @@ export async function checkForNewProducts(
 }> {
   console.log(`Checking for new products with limit: ${limit}`)
 
-  // Fetch newest products
-  const products = await fetchNewProducts(limit)
-  console.log(`Fetched ${products.length} products`)
+  try {
+    // Fetch newest products
+    const products = await fetchNewProducts(limit)
+    console.log(`Fetched ${products.length} products`)
 
-  // Filter out products we've already seen
-  const newProducts = products.filter((product) => !scrapedProductIds.has(product.id))
-  console.log(`Found ${newProducts.length} new products (${products.length - newProducts.length} already seen)`)
+    // Filter out products we've already seen
+    const newProducts = products.filter((product) => !scrapedProductIds.has(product.id))
+    console.log(`Found ${newProducts.length} new products (${products.length - newProducts.length} already seen)`)
 
-  // Process the new products to extract contact information
-  const productsWithContacts = await extractContactInfo(newProducts, newProducts.length)
+    // Process the new products to extract contact information
+    let productsWithContacts: Product[] = []
 
-  // Update our set of scraped product IDs
-  productsWithContacts.forEach((product) => {
-    scrapedProductIds.add(product.id)
-  })
-
-  // Send Discord notifications if enabled
-  if (notifyDiscord && productsWithContacts.length > 0 && webhookUrl) {
     try {
-      await sendDiscordNotification(
-        productsWithContacts.filter(
-          (p) => (p.emails && p.emails.length > 0) || (p.twitterHandles && p.twitterHandles.length > 0),
-        ),
-        webhookUrl,
-      )
-    } catch (error) {
-      console.error("Error sending Discord notification:", error)
-    }
-  }
+      // Process in smaller batches to avoid overwhelming the system
+      const BATCH_SIZE = 5
+      const batches = []
 
-  return {
-    newProducts: productsWithContacts,
-    alreadyScrapedCount: products.length - newProducts.length,
-    totalChecked: products.length,
+      for (let i = 0; i < newProducts.length; i += BATCH_SIZE) {
+        batches.push(newProducts.slice(i, i + BATCH_SIZE))
+      }
+
+      console.log(`Processing ${batches.length} batches of products`)
+
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i]
+        console.log(`Processing batch ${i + 1}/${batches.length} with ${batch.length} products`)
+
+        try {
+          const batchResults = await extractContactInfo(batch, batch.length)
+          productsWithContacts = [...productsWithContacts, ...batchResults]
+
+          // Update our set of scraped product IDs for this batch
+          batch.forEach((product) => {
+            scrapedProductIds.add(product.id)
+          })
+
+          // Add a delay between batches to avoid overwhelming the system
+          if (i < batches.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 2000))
+          }
+        } catch (batchError) {
+          console.error(`Error processing batch ${i + 1}:`, batchError)
+          // Continue with next batch even if this one failed
+          // Still mark these products as processed to avoid retrying immediately
+          batch.forEach((product) => {
+            scrapedProductIds.add(product.id)
+          })
+        }
+      }
+    } catch (error) {
+      console.error("Error extracting contact information:", error)
+      // Even if extraction fails, mark products as seen to avoid infinite retries
+      newProducts.forEach((product) => {
+        scrapedProductIds.add(product.id)
+      })
+      // Return the products without contact info
+      productsWithContacts = newProducts
+    }
+
+    // Send Discord notifications if enabled
+    if (notifyDiscord && productsWithContacts.length > 0 && webhookUrl) {
+      try {
+        // Only send notifications for products with contact info
+        const productsWithContactInfo = productsWithContacts.filter(
+          (p) => (p.emails && p.emails.length > 0) || (p.twitterHandles && p.twitterHandles.length > 0),
+        )
+
+        if (productsWithContactInfo.length > 0) {
+          console.log(`Sending Discord notifications for ${productsWithContactInfo.length} products`)
+
+          // Send notifications one at a time to avoid rate limits
+          for (const product of productsWithContactInfo) {
+            try {
+              await sendDiscordNotification(product, webhookUrl)
+              // Small delay between notifications
+              await new Promise((resolve) => setTimeout(resolve, 1000))
+            } catch (notifyError) {
+              console.error(`Error sending notification for product ${product.name}:`, notifyError)
+              // Continue with next product
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error sending Discord notifications:", error)
+      }
+    }
+
+    return {
+      newProducts: productsWithContacts,
+      alreadyScrapedCount: products.length - newProducts.length,
+      totalChecked: products.length,
+    }
+  } catch (error) {
+    console.error("Error checking for new products:", error)
+    // Return empty result on error
+    return {
+      newProducts: [],
+      alreadyScrapedCount: 0,
+      totalChecked: 0,
+    }
   }
 }
 

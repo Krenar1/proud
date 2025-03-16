@@ -5,7 +5,7 @@ import dynamic from "next/dynamic"
 import { LoadingProducts } from "@/components/loading-products"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertTriangle } from "lucide-react"
-import { ErrorBoundary } from "@/components/error-boundary"
+import { ScraperErrorBoundary } from "@/components/scraper-error-boundary"
 
 // Dynamically import components that might use client-side hooks
 const ProductList = dynamic(() => import("@/components/product-list"), {
@@ -34,13 +34,14 @@ export function HomeClientComponents() {
         <ProductsFilter />
       </Suspense>
 
-      <ErrorBoundary
+      <ScraperErrorBoundary
         fallback={
           <Alert variant="destructive" className="my-4">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
+            <AlertTitle>Scraper Error</AlertTitle>
             <AlertDescription>
-              Failed to load products. This could be due to API rate limiting. Please try again later.
+              The scraper process crashed. This usually happens when processing too many websites at once. Try reducing
+              the number of products to process or use the batch processing option.
             </AlertDescription>
           </Alert>
         }
@@ -48,7 +49,7 @@ export function HomeClientComponents() {
         <Suspense fallback={<LoadingProducts />}>
           <ProductList />
         </Suspense>
-      </ErrorBoundary>
+      </ScraperErrorBoundary>
     </>
   )
 }

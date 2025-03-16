@@ -15,7 +15,11 @@ const BYPASS_DOMAINS = [
   "facebook.com",
   "fb.com",
   "apple.com",
+  "apps.apple.com",
+  "itunes.apple.com",
   "google.com",
+  "gemini.google.com",
+  "bard.google.com",
   "microsoft.com",
   "amazon.com",
   "twitter.com",
@@ -38,7 +42,41 @@ const BYPASS_DOMAINS = [
   "openai.com",
   "anthropic.com",
   "gemini.com",
-  "bard.google.com",
+  "play.google.com",
+  "chrome.google.com",
+  "docs.google.com",
+  "drive.google.com",
+  "gmail.com",
+  "outlook.com",
+  "office.com",
+  "tiktok.com",
+  "reddit.com",
+  "pinterest.com",
+  "snapchat.com",
+  "whatsapp.com",
+  "telegram.org",
+  "discord.com",
+  "slack.com",
+  "zoom.us",
+  "twitch.tv",
+  "vimeo.com",
+  "wordpress.com",
+  "shopify.com",
+  "wix.com",
+  "squarespace.com",
+  "cloudflare.com",
+  "aws.amazon.com",
+  "azure.microsoft.com",
+  "cloud.google.com",
+  "wikipedia.org",
+  "medium.com",
+  "substack.com",
+  "notion.so",
+  "figma.com",
+  "canva.com",
+  "stripe.com",
+  "paypal.com",
+  "square.com",
 ]
 
 // Get a random user agent
@@ -46,12 +84,38 @@ function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
 }
 
-// Helper function to check if domain should be bypassed
+// Enhance the shouldBypassDomain function to be more effective
 function shouldBypassDomain(url: string): boolean {
   try {
     const urlObj = new URL(url)
     const domain = urlObj.hostname.toLowerCase()
-    return BYPASS_DOMAINS.some((bypassDomain) => domain === bypassDomain || domain.endsWith(`.${bypassDomain}`))
+
+    // Direct match for full domain
+    if (BYPASS_DOMAINS.includes(domain)) {
+      console.log(`Bypassing famous domain: ${domain}`)
+      return true
+    }
+
+    // Check for subdomain of a bypass domain
+    for (const bypassDomain of BYPASS_DOMAINS) {
+      if (domain === bypassDomain || domain.endsWith(`.${bypassDomain}`)) {
+        console.log(`Bypassing famous domain (subdomain match): ${domain}`)
+        return true
+      }
+    }
+
+    // Check for app store links
+    if (domain.includes("apple.com") && urlObj.pathname.includes("/app/")) {
+      console.log(`Bypassing App Store link: ${domain}${urlObj.pathname}`)
+      return true
+    }
+
+    if (domain.includes("play.google.com") && urlObj.pathname.includes("/store/apps/")) {
+      console.log(`Bypassing Google Play Store link: ${domain}${urlObj.pathname}`)
+      return true
+    }
+
+    return false
   } catch (error) {
     console.error(`Error parsing URL ${url}:`, error)
     return false
@@ -879,11 +943,14 @@ async function extractUrlFromProductHuntPage(url: string): Promise<string | null
 }
 
 // Add a timeout function to prevent hanging requests
-function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 10000) {
+function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 8000) {
   const controller = new AbortController()
   const { signal } = controller
 
-  const timeoutId = setTimeout(() => controller.abort(), timeout)
+  const timeoutId = setTimeout(() => {
+    controller.abort()
+    console.log(`Request to ${url} timed out after ${timeout}ms`)
+  }, timeout)
 
   return fetch(url, { ...options, signal })
     .then((response) => {
@@ -892,6 +959,9 @@ function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = 1000
     })
     .catch((error) => {
       clearTimeout(timeoutId)
+      if (error.name === "AbortError") {
+        throw new Error(`Request to ${url} timed out after ${timeout}ms`)
+      }
       throw error
     })
 }
@@ -1341,6 +1411,10 @@ export async function scrapeWebsite(url: string): Promise<{
   exactWebsiteUrl: string
   externalLinks?: string[]
 }> {
+  // Add this at the top of the function:
+  const MAX_EXECUTION_TIME = 10000 // 10 seconds max per website
+  const startTime = Date.now()
+
   // Default empty response
   const emptyResult = {
     emails: [],
@@ -1371,6 +1445,15 @@ export async function scrapeWebsite(url: string): Promise<{
   if (!isValidUrl(url)) {
     console.error(`Invalid URL format: ${url}`)
     return emptyResult
+  }
+
+  // Check if this is a famous domain that should be bypassed
+  if (shouldBypassDomain(url)) {
+    console.log(`Skipping famous website: ${url}`)
+    return {
+      ...emptyResult,
+      exactWebsiteUrl: url,
+    }
   }
 
   try {
@@ -1573,33 +1656,46 @@ export async function scrapeWebsite(url: string): Promise<{
 }
 
 // Function to process products in batches to avoid timeouts
-export async function processBatches(products: Product[], batchSize = 10): Promise<Product[]> {
+export async function processBatches(products: Product[], batchSize = 5): Promise<Product[]> {
   const updatedProducts: Product[] = []
   const totalProducts = products.length
   let processedCount = 0
 
-  for (let i = 0; i < totalProducts; i += batchSize) {
-    const batch = products.slice(i, i + batchSize)
-    console.log(`Processing batch ${Math.floor(i / batchSize) + 1} of ${Math.ceil(totalProducts / batchSize)}`)
+  // Use even smaller batches for large sets
+  const actualBatchSize = totalProducts > 20 ? 3 : batchSize
+
+  for (let i = 0; i < totalProducts; i += actualBatchSize) {
+    const batch = products.slice(i, i + actualBatchSize)
+    console.log(
+      `Processing batch ${Math.floor(i / actualBatchSize) + 1} of ${Math.ceil(totalProducts / actualBatchSize)}`,
+    )
 
     try {
-      const batchResults = await extractContactInfo(batch, batchSize)
+      // Add a yield point to allow browser to breathe
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      const batchResults = await extractContactInfo(batch, actualBatchSize)
       updatedProducts.push(...batchResults)
       processedCount += batch.length
       console.log(`Processed ${processedCount}/${totalProducts} products`)
 
-      // Add a delay between batches to avoid rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      // Add a longer delay between batches to avoid browser freezing
+      await new Promise((resolve) => setTimeout(resolve, 1500))
     } catch (error) {
       console.error("Error processing batch:", error)
-      // Collect partial results and continue
+      // Add the batch without processing so we don't lose data
       updatedProducts.push(...batch)
+
+      // Add a longer recovery delay
+      await new Promise((resolve) => setTimeout(resolve, 3000))
     }
   }
 
   console.log(`Batch processing complete. Total updated products: ${updatedProducts.length}`)
   return updatedProducts
 }
+
+// Also update the extractContactInfo function to check for famous domains before processing
 
 // Process products one at a time to avoid timeouts
 export async function extractContactInfo(products: Product[], maxToProcess = 10): Promise<Product[]> {
@@ -1608,12 +1704,30 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
   // Create a copy of the original products array to maintain order
   const allUpdatedProducts = [...products]
 
-  // Filter out products without websites
+  // Filter out products without websites and famous websites
   const productsWithWebsites = products
-    .filter((product) => product.website && typeof product.website === "string" && product.website.trim() !== "")
+    .filter((product) => {
+      // Skip products without websites
+      if (!product.website || typeof product.website !== "string" || product.website.trim() === "") {
+        return false
+      }
+
+      // Skip famous websites
+      let website = product.website
+      if (!website.startsWith("http://") && !website.startsWith("https://")) {
+        website = "https://" + website
+      }
+
+      if (shouldBypassDomain(website)) {
+        console.log(`Skipping famous website for product ${product.name}: ${website}`)
+        return false
+      }
+
+      return true
+    })
     .slice(0, maxToProcess) // Limit to maxToProcess
 
-  console.log(`Found ${productsWithWebsites.length} products with websites (limited to ${maxToProcess})`)
+  console.log(`Found ${productsWithWebsites.length} products with websites to process (limited to ${maxToProcess})`)
 
   if (productsWithWebsites.length === 0) {
     console.log("No products with websites to process")
@@ -1681,6 +1795,7 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
 
       // Process with timeout and better error handling
       try {
+        // Set a shorter timeout for the entire process to avoid hanging
         const processPromise = scrapeWebsite(website)
         const timeoutPromise = new Promise<{
           emails: string[]
@@ -1695,7 +1810,7 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
           exactWebsiteUrl: string
           externalLinks?: string[]
         }>((_, reject) => {
-          setTimeout(() => reject(new Error(`Processing timed out for ${product.name}`)), 15000) // Increased timeout for more thorough processing
+          setTimeout(() => reject(new Error(`Processing timed out for ${product.name}`)), 12000) // Reduced timeout to 12 seconds
         })
 
         const contactInfo = await Promise.race([processPromise, timeoutPromise]).catch((error) => {
@@ -1720,8 +1835,7 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
         if (index !== -1) {
           allUpdatedProducts[index] = {
             ...allUpdatedProducts[index], // Keep existing properties
-            website: contactInfo.exactWebsiteUrl || website, // Use  // Keep existing properties
-            website: contactInfo.exactWebsiteUrl || website, // Use the exact website URL we found
+            website: contactInfo.exactWebsiteUrl || website,
             exactWebsiteUrl: contactInfo.exactWebsiteUrl || website, // Store the exact URL separately
             emails: contactInfo.emails || [],
             twitterHandles: contactInfo.socialMedia.twitter || [],
@@ -1736,6 +1850,12 @@ export async function extractContactInfo(products: Product[], maxToProcess = 10)
 
         success = true
         consecutiveFailures = 0 // Reset consecutive failures on success
+        const checkTimeout = () => {
+          if (Date.now() - startTime > MAX_EXECUTION_TIME) {
+            console.log(`Scraping ${website} timed out after ${MAX_EXECUTION_TIME}ms`)
+            throw new Error(`Scraping timed out for ${website}`)
+          }
+        }
       } catch (processError) {
         console.error(`Error processing website for ${product.name}:`, processError)
         // Don't throw, just continue to the next product
