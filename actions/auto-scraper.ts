@@ -490,7 +490,7 @@ export async function checkForNewProducts(
   }
 }
 
-export function resetScrapedProducts(): void {
+export async function resetScrapedProducts(): Promise<void> {
   const previousCount = scrapedProductIds.size
   scrapedProductIds = new Set<string>()
   console.log(`Reset scraped products cache. Cleared ${previousCount} product IDs.`)

@@ -1,4 +1,4 @@
-"\"use server"
+"use server"
 
 import type { ProductsFilter, ProductsResponse } from "@/types/product"
 
